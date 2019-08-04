@@ -35,7 +35,6 @@ parser.add_argument('-root', type=str)
 args = parser.parse_args()
 top_acc = 0
 
-
 def run(init_lr=0.1, max_steps=640, mode='rgb', batch_size=32, save_model=''):
     logger = SummaryWriter()
 
@@ -109,12 +108,11 @@ def run(init_lr=0.1, max_steps=640, mode='rgb', batch_size=32, save_model=''):
     while steps < max_steps:
         count = train(
             i3d, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
-        val(i3d, dataloaders['val'], steps, logger)
+        val(i3d, dataloaders['val'], criterion, steps, logger)
 
         if (steps+1) % em_steps == 0:
-            i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
+            #i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
             sampler.sample_hidden_state(i3d)
-
             optimizer = optim.SGD(i3d.parameters(), lr=init_lr,
                           momentum=0.9, weight_decay=0.0000001)
             lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
@@ -154,10 +152,11 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
     return count
 
 
-def val(model, dataloader, epoch, logger=None):
+def val(model, dataloader, criterion, epoch, logger=None):
     model.train(False)
     top1 = AverageMeter()
     top2 = AverageMeter()
+    val_loss = AverageMeter()
 
     global top_acc
     with torch.no_grad():
@@ -166,6 +165,9 @@ def val(model, dataloader, epoch, logger=None):
             inputs = inputs.cuda()
             labels = labels.cuda(non_blocking=True)
             output = model(inputs)
+
+            loss = criterion(output, labels)
+            val_loss.update(loss.item(), labels.size(0))
 
             a1, a2 = accuracy(output, labels, (1, 2))
             top1.update(a1, labels.size(0))
@@ -177,6 +179,8 @@ def val(model, dataloader, epoch, logger=None):
                        'pev_i3d_best.pt')
 
         logger.add_scalar('val/top1', top1.avg, epoch)
+        logger.add_scalar('val/loss', val_loss.avg, epoch)
+
         print("Top1:%.2f Top2:%.2f" % (top1.avg, top2.avg))
 
 
