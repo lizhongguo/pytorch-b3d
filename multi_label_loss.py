@@ -37,7 +37,7 @@ class MLL(nn.Module):
             predict = torch.einsum(
                 'n%s->na%s' % (self._multi_label_idx, idx), output).view(N, -1)
             loss = self.criterion(torch.log(predict),
-                                  self._multi_label_shape[0]*target[:, i] + target[:, 0]) * self.theta
+                                  self._multi_label_shape[i]*target[:, 0] + target[:, i]) * self.theta
 
             tot_loss = tot_loss + loss if tot_loss is not None else loss
 
@@ -67,3 +67,44 @@ class MLLSampler(object):
                 for i, idx in enumerate(self._multi_label_idx[1:],1):
                     prob = torch.einsum('na%s->na%s' % (self._multi_label_idx[1:], idx), output)
                     self.dataloader.dataset.update_label(index,i,prob)
+'''
+class MLL_lite(nn.Module):
+    def __init__(self, multi_label_shape):
+        super(MLL_lite, self).__init__()
+        self._multi_label_shape = tuple(multi_label_shape)
+        
+        idx = 0
+        self._multi_label_index = [0]
+        for l in self._multi_label_shape[1:]:
+            idx = idx + l
+            self._multi_label_index.append[idx]
+
+
+        self.criterion = nn.NLLLoss()
+        self.softmax = nn.Softmax(dim=1)
+        self.theta = 0.1
+        self.weight = [1.]*len(multi_label_shape)
+        self.weight[0] = 1.
+
+    def forward(self, output, target):
+
+        # target shape [batch_size, first_label,(second_label + second_label + ..)]
+        # first order loss
+        N = output.size(0)
+
+        # N * Action *( L1 + L2 + L3 ...)
+        output = output.view((N,self._multi_label_shape[0],-1))
+
+        tot_loss = None
+
+        # second order loss
+        for i, idx in enumerate(self._multi_label_shape[1:], 1):
+            prob = output[:,:,self._multi_label_index[idx-1]:self._multi_label_index[idx]]
+            prob = self.softmax(prob.view(N,-1))
+            loss = self.criterion(torch.log(prob),
+                self._multi_label_shape[0]*target[:, i] + target[:, 0]) * self.theta
+
+            tot_loss = tot_loss + loss if tot_loss is not None else loss
+
+        return tot_loss
+'''
