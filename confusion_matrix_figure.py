@@ -10,7 +10,7 @@ def draw_confusion_matrix(matrix,labels,color='Oranges'):
     
     for i in range(x):
         for j in range(y):
-            ax.text(i,j,'%.1f' % matrix[i][j].item(),fontsize=10,horizontalalignment='center',verticalalignment='center')
+            ax.text(i,j,'%.2f' % matrix[i][j].item(),fontsize=10,horizontalalignment='center',verticalalignment='center')
 
     cax = ax.matshow(matrix.numpy(),cmap=cm.get_cmap(color))
     plt.title('Confusion matrix of the classifier')
