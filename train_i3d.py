@@ -188,7 +188,7 @@ def val(model, dataloader, criterion, epoch, logger=None):
         logger.add_scalar('val/top1', top1.avg, epoch)
         logger.add_scalar('val/loss', val_loss.avg, epoch)
         logger.add_figure('val/confusion_matrix',
-                          draw_confusion_matrix(confusion_matrix._data,label_names))
+                          draw_confusion_matrix(confusion_matrix._data,label_names),epoch)
 
         print("Top1:%.2f Top2:%.2f" % (top1.avg, top2.avg))
 
