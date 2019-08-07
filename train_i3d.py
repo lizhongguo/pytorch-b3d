@@ -26,6 +26,8 @@ import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
 
+from confusion_matrix_figure import draw_confusion_matrix
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-mode', type=str, help='rgb or flow')
@@ -35,7 +37,8 @@ parser.add_argument('-root', type=str)
 args = parser.parse_args()
 top_acc = 0
 
-def run(init_lr=0.1, max_steps=640, mode='rgb', batch_size=32, save_model=''):
+
+def run(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model=''):
     logger = SummaryWriter()
 
     # setup dataset
@@ -81,10 +84,10 @@ def run(init_lr=0.1, max_steps=640, mode='rgb', batch_size=32, save_model=''):
 
     # setup the model
     if mode == 'flow':
-        i3d = InceptionI3d(num_classes=dataset.multi_label_num, in_channels=2)
+        i3d = InceptionI3d(num_classes=7, in_channels=2)
         i3d.load_state_dict(torch.load('models/flow_imagenet.pt'))
     else:
-        i3d = InceptionI3d(num_classes=dataset.multi_label_num,
+        i3d = InceptionI3d(num_classes=7,
                            in_channels=3, dropout_keep_prob=0.5)
         i3d.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                              if k.find('logits') < 0}, strict=False)
@@ -99,11 +102,12 @@ def run(init_lr=0.1, max_steps=640, mode='rgb', batch_size=32, save_model=''):
     lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
 
     steps = 0
-    criterion = MLL(dataset.multi_label_shape)    # train it
+    # criterion = MLL(dataset.multi_label_shape)    # train it
+    criterion = nn.CrossEntropyLoss()
     count = 0
 
-    sampler = MLLSampler(dataloaders['train'],dataset.multi_label_shape)
-    em_steps = 80
+    #sampler = MLLSampler(dataloaders['train'],dataset.multi_label_shape)
+    em_steps = 40
 
     while steps < max_steps:
         count = train(
@@ -111,10 +115,10 @@ def run(init_lr=0.1, max_steps=640, mode='rgb', batch_size=32, save_model=''):
         val(i3d, dataloaders['val'], criterion, steps, logger)
 
         if (steps+1) % em_steps == 0:
-            #i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
-            sampler.sample_hidden_state(i3d)
+            # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
+            # sampler.sample_hidden_state(i3d)
             optimizer = optim.SGD(i3d.parameters(), lr=init_lr,
-                          momentum=0.9, weight_decay=0.0000001)
+                                  momentum=0.9, weight_decay=0.0000001)
             lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
 
         steps = steps + 1
@@ -148,7 +152,7 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
         print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
               (count, loss.item(), top1, top2))
 
-    #lr_sched.step()
+    # lr_sched.step()
     return count
 
 
@@ -157,7 +161,8 @@ def val(model, dataloader, criterion, epoch, logger=None):
     top1 = AverageMeter()
     top2 = AverageMeter()
     val_loss = AverageMeter()
-
+    label_names = ['0','1','2','3','4','5','6']
+    confusion_matrix = MatrixMeter(label_names)
     global top_acc
     with torch.no_grad():
         for it, data in enumerate(dataloader):
@@ -170,6 +175,8 @@ def val(model, dataloader, criterion, epoch, logger=None):
             val_loss.update(loss.item(), labels.size(0))
 
             a1, a2 = accuracy(output, labels, (1, 2))
+            update_confusion_matrix(confusion_matrix, output, labels)
+
             top1.update(a1, labels.size(0))
             top2.update(a2, labels.size(0))
 
@@ -180,6 +187,8 @@ def val(model, dataloader, criterion, epoch, logger=None):
 
         logger.add_scalar('val/top1', top1.avg, epoch)
         logger.add_scalar('val/loss', val_loss.avg, epoch)
+        logger.add_figure('val/confusion_matrix',
+                          draw_confusion_matrix(confusion_matrix._data,label_names))
 
         print("Top1:%.2f Top2:%.2f" % (top1.avg, top2.avg))
 
@@ -189,9 +198,12 @@ def accuracy(output, target, topk=(1,)):
     maxk = max(topk)
     batch_size = target.size(0)
 
-    output = output.view((-1, 7, 2, 3, 2, 2, 2, 4))
-    output = torch.einsum('n%s->n%s' % ('abcdefg', 'a'), output)
-    target = target[:, 0]
+    #output = output.view((-1, 7, 2, 3, 2, 2, 2, 4))
+    # output = output.view((-1, 7, 7))
+
+    #output = torch.einsum('n%s->n%s' % ('abcdefg', 'a'), output)
+    #output = torch.einsum('n%s->n%s' % ('ab', 'a'), output)
+    #target = target[:, 0]
 
     _, pred = output.topk(maxk, 1, True, True)
 
@@ -224,12 +236,12 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def build_confusion_matrix(matrix_meter, output, target):
+def update_confusion_matrix(matrix_meter, output, target):
     """Computes the precision@k for the specified values of k"""
 
-    output = output.view((-1, 7, 2, 3, 2, 2, 2, 4))
-    output = torch.einsum('n%s->n%s' % ('abcdefg', 'a'), output)
-    target = target[:, 0]
+    #output = output.view((-1, 7, 2, 3, 2, 2, 2, 4))
+    #output = torch.einsum('n%s->n%s' % ('abcdefg', 'a'), output)
+    #target = target[:, 0]
 
     maxk = 1
     _, pred = output.topk(maxk, 1, True, True)
@@ -241,23 +253,33 @@ class MatrixMeter(object):
 
     def __init__(self, labels):
         self.labels = labels
-        self.confuse_matrix = torch.zeros(len(labels), len(labels))
+        self._matrix = torch.zeros(
+            (len(labels), len(labels)), dtype=torch.float)
 
     def update(self, output, target):
         # pdb.set_trace()
         for o, t in zip(output, target):
-            self.confuse_matrix[t][o] = self.confuse_matrix[t][o] + 1
+            self._matrix[t][o] = self._matrix[t][o] + 1
+
+    @property
+    def _data(self):
+        data = torch.zeros(
+            (len(self.labels), len(self.labels)), dtype=torch.float)
+
+        for l in range(len(self.labels)):
+            data[l] = self._matrix[l]/self._matrix[l].sum()
+        return data
 
     def __str__(self):
         _str_format = "%.2f\t"*len(self.labels)+'\n'
         _str = ' \t' + '\t'.join(l for l in self.labels) + '\n'
         for l in range(len(self.labels)):
             _str = _str + '%s\t' % self.labels[l] + _str_format % \
-                tuple((i/self.confuse_matrix[l].sum()).item()
-                      for i in self.confuse_matrix[l])
+                tuple((i/self._matrix[l].sum()).item()
+                      for i in self._matrix[l])
         return _str
 
 
 if __name__ == '__main__':
     # need to add argparse
-    run(mode=args.mode, batch_size=20, save_model=args.save_model)
+    run(mode=args.mode, batch_size=15, save_model=args.save_model)

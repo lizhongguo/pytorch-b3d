@@ -130,6 +130,78 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
 
     return dataset
 
+# use undersample method to avoid class imbalance
+
+
+def make_raw_dataset(annotation_path, subset):
+
+    # annotation[video_idx] = label
+    split_list = open(annotation_path)
+
+    raw_dataset = dict()
+    min_class_len = 0
+
+    for i, s in enumerate(split_list):
+        s = s.split(' ')
+        video_name = s[0]
+        label = int(s[2])
+
+        if label not in raw_dataset:
+            raw_dataset[label] = list()
+
+        raw_dataset[label].append({video_name})
+        min_class_len = min_class_len + 1
+
+    for e in raw_dataset:
+        if len(raw_dataset[e]) < min_class_len:
+            min_class_len = len(raw_dataset[e])
+    return raw_dataset
+
+
+def undersample(root_path, raw_dataset, subset, min_class_len, n_samples_for_each_video,
+                sample_duration):
+    dataset = []
+
+    for i, label in enumerate(raw_dataset):
+
+        videos = raw_dataset[label]
+
+        for video_name in np.random.choice(videos, min_class_len, replace=False):
+            # only use second person's view
+            video_path = os.path.join(root_path, video_name)
+            if not os.path.exists(video_path):
+                continue
+            # all video's length is 90 frames
+            n_frames = 90
+
+            begin_t = 1
+            end_t = n_frames
+            sample = {
+                'video': video_path,
+                'segment': [begin_t, end_t],
+                'n_frames': n_frames,
+                'video_id': i
+            }
+            sample['label'] = label
+
+            if n_samples_for_each_video == 1:
+                sample['frame_indices'] = list(range(1, n_frames + 1))
+                dataset.append(sample)
+            else:
+                if n_samples_for_each_video > 1:
+                    step = max(1,
+                               math.floor((n_frames - 1 - sample_duration) /
+                                          (n_samples_for_each_video - 1)))
+                else:
+                    step = sample_duration
+                for j in range(1, n_frames, step):
+                    sample_j = copy.deepcopy(sample)
+                    sample_j['frame_indices'] = list(
+                        range(j, min(n_frames + 1, j + sample_duration)))
+                    dataset.append(sample_j)
+
+    return dataset
+
 
 class PEV(data.Dataset):
     """
@@ -162,12 +234,17 @@ class PEV(data.Dataset):
             root_path, annotation_path, subset, n_samples_for_each_video,
             sample_duration)
 
+        self.root_path = root_path
+        self.annotation_path = annotation_path
+        self.n_samples_for_each_video = n_samples_for_each_video
+        self.sample_duration = sample_duration
+
         self.spatial_transform = spatial_transform
         self.temporal_transform = temporal_transform
         self.target_transform = target_transform
         self.loader = get_loader()
 
-        # 
+        '''
         self.target_matrix = [[0, 1, 0, 0, 1, 0, 0],
                                [1, 0, 0, 0, 0, 1, 1],
                                [2, 0, 1, 1, 1, 1, 0],
@@ -175,13 +252,22 @@ class PEV(data.Dataset):
                                [4, 0, 0, 0, 0, 0, 2],
                                [5, 0, 0, 0, 0, 0, 3],
                                [6, 1, 0, 0, 0, 0, 0]]
-
         self.multi_label_shape = [7, 2, 3, 2, 2, 2, 4]
+        '''
+        self.target_matrix = [[0, 0],
+                              [1, 1],
+                              [2, 2],
+                              [3, 3],
+                              [4, 4],
+                              [5, 5],
+                              [6, 6]]
+        self.multi_label_shape = [7, 7]
+
         self.multi_label_num = 1
         for e in self.multi_label_shape:
             self.multi_label_num = self.multi_label_num * e
         self.multi_label_data = None
-        self._multilabel_initialize()
+        # self._multilabel_initialize()
 
     def __getitem__(self, index):
         """
@@ -219,15 +305,12 @@ class PEV(data.Dataset):
             for e in self.data:
                 e['label'] = self.target_matrix[e['label']]
 
-    def update_label(self, data_index,dim_index,prob):
+    def update_label(self, data_index, dim_index, prob):
 
-        print(dim_index)
-        print(prob)
         for data_idx, p in zip(data_index, prob):
-            #p means p(Action=gt, TargetLabel)
+            # p means p(Action=gt, TargetLabel)
             p = p[self.data[data_idx]['label'][0]]
             p = (p/p.sum()).cpu().numpy()
-            #now p is p(Target|Action=gt)
-            l = np.random.choice(np.arange(len(p)),p=p)
+            # now p is p(Target|Action=gt)
+            l = np.random.choice(np.arange(len(p)), p=p)
             self.data[data_idx]['label'][dim_index] = l.item()
-

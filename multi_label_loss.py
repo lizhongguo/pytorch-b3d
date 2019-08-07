@@ -12,8 +12,7 @@ class MLL(nn.Module):
         self.criterion = nn.NLLLoss()
         self.softmax = nn.Softmax(dim=1)
         self.theta = 0.1
-        self.weight = [1.]*len(multi_label_shape)
-        self.weight[0] = 1.
+        self.weight = [0.1]*len(multi_label_shape)
 
     def forward(self, output, target):
 
