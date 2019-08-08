@@ -1,3 +1,4 @@
+from confusion_matrix_figure import draw_confusion_matrix
 from multi_label_loss import MLL
 from multi_label_loss import MLLSampler
 
@@ -25,9 +26,6 @@ import sys
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
-
-from confusion_matrix_figure import draw_confusion_matrix
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-mode', type=str, help='rgb or flow')
@@ -114,9 +112,13 @@ def run(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model=''):
             i3d, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
         val(i3d, dataloaders['val'], criterion, steps, logger)
 
+        dataset.undersample(dataset.root_path, dataset.raw_data, dataset.subset,
+                            dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration)
+
         if (steps+1) % em_steps == 0:
             # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
             # sampler.sample_hidden_state(i3d)
+
             optimizer = optim.SGD(i3d.parameters(), lr=init_lr,
                                   momentum=0.9, weight_decay=0.0000001)
             lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
@@ -161,7 +163,7 @@ def val(model, dataloader, criterion, epoch, logger=None):
     top1 = AverageMeter()
     top2 = AverageMeter()
     val_loss = AverageMeter()
-    label_names = ['0','1','2','3','4','5','6']
+    label_names = ['0', '1', '2', '3', '4', '5', '6']
     confusion_matrix = MatrixMeter(label_names)
     global top_acc
     with torch.no_grad():
@@ -187,8 +189,8 @@ def val(model, dataloader, criterion, epoch, logger=None):
 
         logger.add_scalar('val/top1', top1.avg, epoch)
         logger.add_scalar('val/loss', val_loss.avg, epoch)
-        logger.add_figure('val/confusion_matrix',
-                          draw_confusion_matrix(confusion_matrix._data,label_names),epoch)
+        logger.add_figure('val/confusion',
+                          draw_confusion_matrix(confusion_matrix._data, label_names), epoch)
 
         print("Top1:%.2f Top2:%.2f" % (top1.avg, top2.avg))
 

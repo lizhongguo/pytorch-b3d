@@ -149,58 +149,14 @@ def make_raw_dataset(annotation_path, subset):
         if label not in raw_dataset:
             raw_dataset[label] = list()
 
-        raw_dataset[label].append({video_name})
+        raw_dataset[label].append(video_name)
         min_class_len = min_class_len + 1
 
     for e in raw_dataset:
         if len(raw_dataset[e]) < min_class_len:
             min_class_len = len(raw_dataset[e])
-    return raw_dataset
-
-
-def undersample(root_path, raw_dataset, subset, min_class_len, n_samples_for_each_video,
-                sample_duration):
-    dataset = []
-
-    for i, label in enumerate(raw_dataset):
-
-        videos = raw_dataset[label]
-
-        for video_name in np.random.choice(videos, min_class_len, replace=False):
-            # only use second person's view
-            video_path = os.path.join(root_path, video_name)
-            if not os.path.exists(video_path):
-                continue
-            # all video's length is 90 frames
-            n_frames = 90
-
-            begin_t = 1
-            end_t = n_frames
-            sample = {
-                'video': video_path,
-                'segment': [begin_t, end_t],
-                'n_frames': n_frames,
-                'video_id': i
-            }
-            sample['label'] = label
-
-            if n_samples_for_each_video == 1:
-                sample['frame_indices'] = list(range(1, n_frames + 1))
-                dataset.append(sample)
-            else:
-                if n_samples_for_each_video > 1:
-                    step = max(1,
-                               math.floor((n_frames - 1 - sample_duration) /
-                                          (n_samples_for_each_video - 1)))
-                else:
-                    step = sample_duration
-                for j in range(1, n_frames, step):
-                    sample_j = copy.deepcopy(sample)
-                    sample_j['frame_indices'] = list(
-                        range(j, min(n_frames + 1, j + sample_duration)))
-                    dataset.append(sample_j)
-
-    return dataset
+    print("min class len %d" % min_class_len)
+    return raw_dataset, min_class_len
 
 
 class PEV(data.Dataset):
@@ -230,14 +186,21 @@ class PEV(data.Dataset):
                  target_transform=None,
                  sample_duration=16,
                  get_loader=get_default_video_loader):
-        self.data = make_dataset(
-            root_path, annotation_path, subset, n_samples_for_each_video,
-            sample_duration)
+        # self.data = make_dataset(
+        #    root_path, annotation_path, subset, n_samples_for_each_video,
+        #    sample_duration)
+
+        self.raw_data, self.min_class_len = make_raw_dataset(
+            annotation_path, subset)
 
         self.root_path = root_path
         self.annotation_path = annotation_path
         self.n_samples_for_each_video = n_samples_for_each_video
         self.sample_duration = sample_duration
+        self.subset = subset
+
+        self.undersample(self.root_path, self.raw_data, self.subset,
+                         self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
 
         self.spatial_transform = spatial_transform
         self.temporal_transform = temporal_transform
@@ -314,3 +277,50 @@ class PEV(data.Dataset):
             # now p is p(Target|Action=gt)
             l = np.random.choice(np.arange(len(p)), p=p)
             self.data[data_idx]['label'][dim_index] = l.item()
+
+    def undersample(self, root_path, raw_dataset, subset, min_class_len, n_samples_for_each_video,
+                    sample_duration):
+        dataset = []
+
+        v_id = 0
+        for i, label in enumerate(raw_dataset):
+
+            videos = raw_dataset[label]
+
+            for video_name in np.random.choice(videos, min_class_len, replace=False):
+                # only use second person's view
+                video_path = os.path.join(root_path, video_name)
+                if not os.path.exists(video_path):
+                    continue
+                # all video's length is 90 frames
+                n_frames = 90
+
+                begin_t = 1
+                end_t = n_frames
+                sample = {
+                    'video': video_path,
+                    'segment': [begin_t, end_t],
+                    'n_frames': n_frames,
+                    'video_id': v_id
+                }
+                sample['label'] = label
+
+                v_id = v_id + 1
+
+                if n_samples_for_each_video == 1:
+                    sample['frame_indices'] = list(range(1, n_frames + 1))
+                    dataset.append(sample)
+                else:
+                    if n_samples_for_each_video > 1:
+                        step = max(1,
+                                   math.floor((n_frames - 1 - sample_duration) /
+                                              (n_samples_for_each_video - 1)))
+                    else:
+                        step = sample_duration
+                    for j in range(1, n_frames, step):
+                        sample_j = copy.deepcopy(sample)
+                        sample_j['frame_indices'] = list(
+                            range(j, min(n_frames + 1, j + sample_duration)))
+                        dataset.append(sample_j)
+
+        self.data = dataset
