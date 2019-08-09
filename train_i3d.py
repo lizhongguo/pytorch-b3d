@@ -8,7 +8,7 @@ from spatial_transform import (
     Compose, Normalize, Scale, CenterCrop, CornerCrop, MultiScaleCornerCrop,
     MultiScaleRandomCrop, RandomHorizontalFlip, ToTensor)
 from target_transform import ClassLabel,VideoID
-from temporal_transform import TemporalRandomCrop
+from temporal_transform import TemporalRandomCrop,TemporalCenterCrop,TemporalBeginCrop
 from pev import PEV
 from charades_dataset import Charades as Dataset
 from pytorch_i3d import InceptionI3d
@@ -141,7 +141,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model='
                                ToTensor(1.0),
                                Normalize([0, 0, 0], [1, 1, 1])
                                ])
-    temporal_transforms = TemporalRandomCrop(64)
+    temporal_transforms = TemporalCenterCrop(64)
     target_transforms = VideoID()
 
     val_dataset = PEV(
