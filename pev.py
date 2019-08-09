@@ -86,6 +86,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
     split_list = open(annotation_path)
 
     dataset = []
+    id2label = dict()
     for i, s in enumerate(split_list):
 
         if i % 300 == 0:
@@ -112,6 +113,8 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
         }
         sample['label'] = label
 
+        id2label[i] = label
+
         if n_samples_for_each_video == 1:
             sample['frame_indices'] = list(range(1, n_frames + 1))
             dataset.append(sample)
@@ -128,7 +131,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
                     range(j, min(n_frames + 1, j + sample_duration)))
                 dataset.append(sample_j)
 
-    return dataset
+    return dataset,id2label
 
 # use undersample method to avoid class imbalance
 
@@ -190,17 +193,23 @@ class PEV(data.Dataset):
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
 
-        self.raw_data, self.min_class_len = make_raw_dataset(
-            annotation_path, subset)
 
         self.root_path = root_path
         self.annotation_path = annotation_path
         self.n_samples_for_each_video = n_samples_for_each_video
         self.sample_duration = sample_duration
         self.subset = subset
+        if subset in ['training','validation']:
+            self.raw_data, self.min_class_len = make_raw_dataset(
+                annotation_path, subset)
 
-        self.undersample(self.root_path, self.raw_data, self.subset,
-                         self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
+            self.undersample(self.root_path, self.raw_data, self.subset,
+                            self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
+        else:
+            self.data, self.id2label = make_dataset(
+                root_path, annotation_path, subset, n_samples_for_each_video,
+                sample_duration)
+
 
         self.spatial_transform = spatial_transform
         self.temporal_transform = temporal_transform
