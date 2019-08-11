@@ -57,7 +57,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
     dataset = PEV('/dataset/pev_frames',
-                  '/dataset/pev_split/train_split.txt',
+                  '/dataset/pev_split/train_split_2.txt',
                   'training',
                   n_samples_for_each_video = 6,
                   spatial_transform=test_transforms,
@@ -66,11 +66,11 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   sample_duration=64)
 
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=36, pin_memory=True)
+        dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split.txt',
+        '/dataset/pev_split/val_split_2.txt',
         'validation',
         1,
         spatial_transform=test_transforms,
@@ -79,7 +79,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
         sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=True, num_workers=36, pin_memory=True)
+        val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
@@ -146,7 +146,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model='
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split.txt',
+        '/dataset/pev_split/val_split_2.txt',
         'evaluation',
         6,
         spatial_transform=test_transforms,
@@ -155,7 +155,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model='
         sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=36, pin_memory=True)
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
 
     # setup the model
