@@ -57,10 +57,10 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
     dataset = PEV('/dataset/pev_frames',
-                  '/dataset/pev_split/train_split_3.txt',
+                  '/dataset/pev_split/train_split_1.txt',
                   'training',
                   n_samples_for_each_video = 6,
-                  spatial_transform=test_transforms,
+                  spatial_transform=train_transforms,
                   temporal_transform=temporal_transforms,
                   target_transform=target_transforms,
                   sample_duration=64)
@@ -70,7 +70,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_3.txt',
+        '/dataset/pev_split/val_split_1.txt',
         'validation',
         1,
         spatial_transform=test_transforms,
@@ -108,7 +108,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     count = 0
 
     sampler = MLLSampler(dataloaders['train'],dataset.multi_label_shape)
-    em_steps = 1
+    em_steps = 20
 
     while steps < max_steps:
         count = train(
@@ -148,7 +148,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_3.txt',
+        '/dataset/pev_split/val_split_1.txt',
         'evaluation',
         6,
         spatial_transform=test_transforms,
