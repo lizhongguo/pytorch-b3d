@@ -11,8 +11,8 @@ class MLL(nn.Module):
 
         self.criterion = nn.NLLLoss()
         self.softmax = nn.Softmax(dim=1)
-        self.theta = 0.1
-        self.weight = [0.1]*len(multi_label_shape)
+        self.theta = 1.
+        self.weight = [1.]*len(multi_label_shape)
 
     def forward(self, output, target):
 
@@ -25,11 +25,9 @@ class MLL(nn.Module):
         assert N == target.size(0)
 
         tot_loss = None
-        for i, idx in enumerate(self._multi_label_idx):
-            loss = self.criterion(torch.log(torch.einsum('n%s->n%s' % (self._multi_label_idx, idx), output)),
-                                  target[:, i])
-            tot_loss = tot_loss + self.weight[i] * \
-                loss if tot_loss is not None else loss
+        loss = self.criterion(torch.log(torch.einsum('n%s->n%s' % (self._multi_label_idx, 'a'), output)),
+                                target[:, 0])
+        tot_loss = -1 * loss
 
         # second order loss
         for i, idx in enumerate(self._multi_label_idx[1:], 1):
@@ -62,7 +60,6 @@ class MLLSampler(object):
                 output = F.softmax(output,dim=1)
 
                 output = output.view((-1,)+self._multi_label_shape)
-
                 for i, idx in enumerate(self._multi_label_idx[1:],1):
                     prob = torch.einsum('na%s->na%s' % (self._multi_label_idx[1:], idx), output)
                     self.dataloader.dataset.update_label(index,i,prob)

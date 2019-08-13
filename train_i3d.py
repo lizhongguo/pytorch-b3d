@@ -42,7 +42,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     logger = SummaryWriter()
 
     # setup dataset
-    train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.8, 0.64], 224),
+    train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], 224),
                                 RandomHorizontalFlip(),
                                 ToTensor(1.0),
                                 Normalize([0, 0, 0], [1, 1, 1])
@@ -57,7 +57,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
     dataset = PEV('/dataset/pev_frames',
-                  '/dataset/pev_split/train_split_2.txt',
+                  '/dataset/pev_split/train_split_3.txt',
                   'training',
                   n_samples_for_each_video = 6,
                   spatial_transform=test_transforms,
@@ -70,7 +70,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_2.txt',
+        '/dataset/pev_split/val_split_3.txt',
         'validation',
         1,
         spatial_transform=test_transforms,
@@ -88,7 +88,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
         i3d = InceptionI3d(num_classes=7, in_channels=2)
         i3d.load_state_dict(torch.load('models/flow_imagenet.pt'))
     else:
-        i3d = InceptionI3d(num_classes=7,
+        i3d = InceptionI3d(num_classes=dataset.multi_label_num,
                            in_channels=3, dropout_keep_prob=0.5)
         i3d.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                              if k.find('logits') < 0}, strict=False)
@@ -103,24 +103,26 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
 
     steps = 0
-    # criterion = MLL(dataset.multi_label_shape)    # train it
-    criterion = nn.CrossEntropyLoss()
+    criterion = MLL(dataset.multi_label_shape)    # train it
+    #criterion = nn.CrossEntropyLoss()
     count = 0
 
-    #sampler = MLLSampler(dataloaders['train'],dataset.multi_label_shape)
-    em_steps = 80
+    sampler = MLLSampler(dataloaders['train'],dataset.multi_label_shape)
+    em_steps = 1
 
     while steps < max_steps:
         count = train(
             i3d, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
         val(i3d, dataloaders['val'], criterion, steps, logger)
 
-        dataset.undersample(dataset.root_path, dataset.raw_data, dataset.subset,
-                            dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration)
+
 
         if (steps+1) % em_steps == 0:
             # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
-            # sampler.sample_hidden_state(i3d)
+            dataset.undersample(dataset.root_path, dataset.raw_data, dataset.subset,
+            dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration)
+
+            sampler.sample_hidden_state(i3d)
 
             optimizer = optim.SGD(i3d.parameters(), lr=init_lr,
                                   momentum=0.9, weight_decay=0.0000001)
@@ -131,7 +133,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     logger.close()
 
 
-def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model=''):
+def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model=''):
     
     logger = SummaryWriter()
 
@@ -146,7 +148,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=32, save_model='
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_2.txt',
+        '/dataset/pev_split/val_split_3.txt',
         'evaluation',
         6,
         spatial_transform=test_transforms,
@@ -297,11 +299,11 @@ def accuracy(output, target, topk=(1,)):
     batch_size = target.size(0)
 
     #output = output.view((-1, 7, 2, 3, 2, 2, 2, 4))
-    # output = output.view((-1, 7, 7))
+    output = output.view((-1, 7, 3, 3))
 
     #output = torch.einsum('n%s->n%s' % ('abcdefg', 'a'), output)
-    #output = torch.einsum('n%s->n%s' % ('ab', 'a'), output)
-    #target = target[:, 0]
+    output = torch.einsum('n%s->n%s' % ('abc', 'a'), output)
+    target = target[:, 0]
 
     _, pred = output.topk(maxk, 1, True, True)
 
@@ -337,9 +339,9 @@ class AverageMeter(object):
 def update_confusion_matrix(matrix_meter, output, target):
     """Computes the precision@k for the specified values of k"""
 
-    #output = output.view((-1, 7, 2, 3, 2, 2, 2, 4))
-    #output = torch.einsum('n%s->n%s' % ('abcdefg', 'a'), output)
-    #target = target[:, 0]
+    output = output.view((-1, 7, 3, 3))
+    output = torch.einsum('n%s->n%s' % ('abc', 'a'), output)
+    target = target[:, 0]
 
     maxk = 1
     _, pred = output.topk(maxk, 1, True, True)
@@ -387,5 +389,5 @@ if __name__ == '__main__':
     if args.eval:
         evaluate()
     else:
-        run(mode=args.mode, batch_size=15, save_model=args.save_model)
+        run(mode=args.mode, batch_size=10, save_model=args.save_model)
 

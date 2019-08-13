@@ -131,7 +131,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
                     range(j, min(n_frames + 1, j + sample_duration)))
                 dataset.append(sample_j)
 
-    return dataset,id2label
+    return dataset, id2label
 
 # use undersample method to avoid class imbalance
 
@@ -193,23 +193,21 @@ class PEV(data.Dataset):
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
 
-
         self.root_path = root_path
         self.annotation_path = annotation_path
         self.n_samples_for_each_video = n_samples_for_each_video
         self.sample_duration = sample_duration
         self.subset = subset
-        if subset in ['training','validation']:
+        if subset in ['training', 'validation']:
             self.raw_data, self.min_class_len = make_raw_dataset(
                 annotation_path, subset)
 
             self.undersample(self.root_path, self.raw_data, self.subset,
-                            self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
+                             self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
         else:
             self.data, self.id2label = make_dataset(
                 root_path, annotation_path, subset, n_samples_for_each_video,
                 sample_duration)
-
 
         self.spatial_transform = spatial_transform
         self.temporal_transform = temporal_transform
@@ -226,20 +224,20 @@ class PEV(data.Dataset):
                                [6, 1, 0, 0, 0, 0, 0]]
         self.multi_label_shape = [7, 2, 3, 2, 2, 2, 4]
         '''
-        self.target_matrix = [[0, 0],
-                              [1, 1],
-                              [2, 2],
-                              [3, 3],
-                              [4, 4],
-                              [5, 5],
-                              [6, 6]]
-        self.multi_label_shape = [7, 7]
+        self.target_matrix = [[0, 0, 0],
+                              [1, 0, 0],
+                              [2, 0, 0],
+                              [3, 0, 0],
+                              [4, 1, 0],
+                              [5, 0, 1],
+                              [6, 2, 2]]
+        self.multi_label_shape = [7, 3, 3]
 
         self.multi_label_num = 1
         for e in self.multi_label_shape:
             self.multi_label_num = self.multi_label_num * e
         self.multi_label_data = None
-        # self._multilabel_initialize()
+        self._multilabel_initialize()
 
     def __getitem__(self, index):
         """
@@ -281,6 +279,9 @@ class PEV(data.Dataset):
 
         for data_idx, p in zip(data_index, prob):
             # p means p(Action=gt, TargetLabel)
+            if isinstance(self.data[data_idx]['label'],int):
+                self.data[data_idx]['label'] = [self.data[data_idx]['label']]*len(self.multi_label_shape)
+
             p = p[self.data[data_idx]['label'][0]]
             p = (p/p.sum()).cpu().numpy()
             # now p is p(Target|Action=gt)
