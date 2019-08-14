@@ -224,20 +224,20 @@ class PEV(data.Dataset):
                                [6, 1, 0, 0, 0, 0, 0]]
         self.multi_label_shape = [7, 2, 3, 2, 2, 2, 4]
         '''
-        self.target_matrix = [[0, 0, 0],
-                              [1, 0, 0],
-                              [2, 0, 0],
-                              [3, 0, 0],
-                              [4, 1, 0],
-                              [5, 0, 1],
-                              [6, 2, 2]]
-        self.multi_label_shape = [7, 3, 3]
+        #self.target_matrix = [[0, 0, 0],
+        #                      [1, 0, 0],
+        #                      [2, 0, 0],
+        #                      [3, 0, 0],
+        #                      [4, 1, 0],
+        #                      [5, 0, 1],
+        #                      [6, 2, 2]]
+        #self.multi_label_shape = [7, 3, 3]
 
-        self.multi_label_num = 1
-        for e in self.multi_label_shape:
-            self.multi_label_num = self.multi_label_num * e
-        self.multi_label_data = None
-        self._multilabel_initialize()
+        #self.multi_label_num = 1
+        #for e in self.multi_label_shape:
+        #    self.multi_label_num = self.multi_label_num * e
+        #self.multi_label_data = None
+        #self._multilabel_initialize()
 
     def __getitem__(self, index):
         """
