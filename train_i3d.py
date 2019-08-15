@@ -54,10 +54,10 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
                                ])
     temporal_transforms = TemporalRandomCrop(64)
     target_transforms = ClassLabel()
-
+    
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
     dataset = PEV('/dataset/pev_frames',
-                  '/dataset/pev_split/train_split_3.txt',
+                  '/dataset/pev_split/train_split_2.txt',
                   'training',
                   n_samples_for_each_video=6,
                   spatial_transform=train_transforms,
@@ -70,7 +70,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_3.txt',
+        '/dataset/pev_split/val_split_2.txt',
         'validation',
         1,
         spatial_transform=test_transforms,
@@ -146,7 +146,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 
     val_dataset = PEV(
         '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_3.txt',
+        '/dataset/pev_split/val_split_2.txt',
         'evaluation',
         6,
         spatial_transform=test_transforms,

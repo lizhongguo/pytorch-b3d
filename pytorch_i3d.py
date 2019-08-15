@@ -292,6 +292,8 @@ class InceptionI3d(nn.Module):
         end_point = 'Logits'
         self.avg_pool = nn.AvgPool3d(kernel_size=[8, 7, 7],
                                      stride=(1, 1, 1))
+
+        
         self.dropout = nn.Dropout(dropout_keep_prob)
         self.logits = Unit3D(in_channels=384+384+128+128, output_channels=self._num_classes,
                              kernel_shape=[1, 1, 1],
@@ -320,6 +322,9 @@ class InceptionI3d(nn.Module):
             self.add_module(k, self.end_points[k])
         
     def forward(self, x):
+        return self.forward_once(x)
+
+    def forward_once(self, x):
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:
                 x = self._modules[end_point](x) # use _modules to work with dataparallel
@@ -330,6 +335,7 @@ class InceptionI3d(nn.Module):
         # logits is batch X time X classes, which is what we want to work with
         logits = logits.squeeze(2)
         return logits
+
         
 
     def extract_features(self, x):

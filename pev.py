@@ -188,7 +188,8 @@ class PEV(data.Dataset):
                  temporal_transform=None,
                  target_transform=None,
                  sample_duration=16,
-                 get_loader=get_default_video_loader):
+                 get_loader=get_default_video_loader,
+                 siamese=False):
         # self.data = make_dataset(
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
@@ -198,12 +199,16 @@ class PEV(data.Dataset):
         self.n_samples_for_each_video = n_samples_for_each_video
         self.sample_duration = sample_duration
         self.subset = subset
+        self.siamese = siamese
         if subset in ['training', 'validation']:
             self.raw_data, self.min_class_len = make_raw_dataset(
                 annotation_path, subset)
 
             self.undersample(self.root_path, self.raw_data, self.subset,
                              self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
+
+            self.labels = self.raw_data.keys()
+
         else:
             self.data, self.id2label = make_dataset(
                 root_path, annotation_path, subset, n_samples_for_each_video,
@@ -213,7 +218,6 @@ class PEV(data.Dataset):
         self.temporal_transform = temporal_transform
         self.target_transform = target_transform
         self.loader = get_loader()
-
         '''
         self.target_matrix = [[0, 1, 0, 0, 1, 0, 0],
                                [1, 0, 0, 0, 0, 1, 1],
@@ -224,7 +228,7 @@ class PEV(data.Dataset):
                                [6, 1, 0, 0, 0, 0, 0]]
         self.multi_label_shape = [7, 2, 3, 2, 2, 2, 4]
         '''
-        #self.target_matrix = [[0, 0, 0],
+        # self.target_matrix = [[0, 0, 0],
         #                      [1, 0, 0],
         #                      [2, 0, 0],
         #                      [3, 0, 0],
@@ -234,10 +238,10 @@ class PEV(data.Dataset):
         #self.multi_label_shape = [7, 3, 3]
 
         #self.multi_label_num = 1
-        #for e in self.multi_label_shape:
+        # for e in self.multi_label_shape:
         #    self.multi_label_num = self.multi_label_num * e
         #self.multi_label_data = None
-        #self._multilabel_initialize()
+        # self._multilabel_initialize()
 
     def __getitem__(self, index):
         """
@@ -246,6 +250,10 @@ class PEV(data.Dataset):
         Returns:
             tuple: (image, target) where target is class_index of the target class.
         """
+
+        if self.siamese :
+            return self.get_siamese_item(index)
+
         path = self.data[index]['video']
 
         frame_indices = self.data[index]['frame_indices']
@@ -268,6 +276,8 @@ class PEV(data.Dataset):
         return clip, target, index
 
     def __len__(self):
+        if self.siamese:
+            return 1024*8*8
         return len(self.data)
 
     def _multilabel_initialize(self):
@@ -279,8 +289,9 @@ class PEV(data.Dataset):
 
         for data_idx, p in zip(data_index, prob):
             # p means p(Action=gt, TargetLabel)
-            if isinstance(self.data[data_idx]['label'],int):
-                self.data[data_idx]['label'] = [self.data[data_idx]['label']]*len(self.multi_label_shape)
+            if isinstance(self.data[data_idx]['label'], int):
+                self.data[data_idx]['label'] = [
+                    self.data[data_idx]['label']]*len(self.multi_label_shape)
 
             p = p[self.data[data_idx]['label'][0]]
             p = (p/p.sum()).cpu().numpy()
@@ -334,3 +345,40 @@ class PEV(data.Dataset):
                         dataset.append(sample_j)
 
         self.data = dataset
+
+    def get_siamese_item(self, index):
+        n_frames = 90
+        frame_indices = list(range(1, n_frames + 1))
+
+        first_video_path = None
+        second_video_path = None
+
+        if index % 2 == 0:
+            first_label, second_label = np.random.choice(
+                self.labels, 2, replace=False)
+            first_video_path = os.path.join(
+                self.root_path, np.random.choice(self.raw_data[first_label]))
+            second_video_path = os.path.join(
+                self.root_path, np.random.choice(self.raw_data[second_label]))
+
+        else:
+            label = np.random.choice(self.labels, 1, replace=False)
+            first_video, second_video = np.random.choice(
+                self.raw_data[label], 2, replace=False)
+            first_video_path = os.path.join(self.root_path, first_video)
+            second_video_path = os.path.join(self.root_path, second_video)
+
+        return self.load_video(first_video_path, frame_indices), \
+            self.load_video(second_video_path, frame_indices), index % 2, index
+
+    def load_video(self, path, frame_indices):
+        if self.temporal_transform is not None:
+            frame_indices = self.temporal_transform(frame_indices)
+
+        clip = self.loader(path, frame_indices)
+
+        if self.spatial_transform is not None:
+            self.spatial_transform.randomize_parameters()
+            clip = [self.spatial_transform(img) for img in clip]
+
+        clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
