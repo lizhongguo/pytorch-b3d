@@ -386,4 +386,4 @@ if __name__ == '__main__':
     if args.eval:
         evaluate(batch_size=8)
     else:
-        run(mode=args.mode, batch_size=8, save_model=args.save_model)
+        run(mode=args.mode, batch_size=4, save_model=args.save_model)
