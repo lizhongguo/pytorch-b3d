@@ -322,9 +322,6 @@ class InceptionI3d(nn.Module):
             self.add_module(k, self.end_points[k])
         
     def forward(self, x):
-        return self.forward_once(x)
-
-    def forward_once(self, x):
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:
                 x = self._modules[end_point](x) # use _modules to work with dataparallel
