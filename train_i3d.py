@@ -226,7 +226,8 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
 
     for data in dataloader:
         optimizer.zero_grad()
-        inputs, labels, _ = data
+        inputs, labels, _ = data        
+
         inputs = inputs.cuda()
         labels = labels.cuda(non_blocking=True)
 
@@ -383,6 +384,6 @@ class MatrixMeter(object):
 if __name__ == '__main__':
     # need to add argparse
     if args.eval:
-        evaluate()
+        evaluate(batch_size=8)
     else:
-        run(mode=args.mode, batch_size=10, save_model=args.save_model)
+        run(mode=args.mode, batch_size=8, save_model=args.save_model)

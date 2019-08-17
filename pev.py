@@ -188,8 +188,7 @@ class PEV(data.Dataset):
                  temporal_transform=None,
                  target_transform=None,
                  sample_duration=16,
-                 get_loader=get_default_video_loader,
-                 siamese=False):
+                 get_loader=get_default_video_loader):
         # self.data = make_dataset(
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
@@ -199,7 +198,6 @@ class PEV(data.Dataset):
         self.n_samples_for_each_video = n_samples_for_each_video
         self.sample_duration = sample_duration
         self.subset = subset
-        self.siamese = siamese
         if subset in ['training', 'validation']:
             self.raw_data, self.min_class_len = make_raw_dataset(
                 annotation_path, subset)
@@ -251,9 +249,6 @@ class PEV(data.Dataset):
             tuple: (image, target) where target is class_index of the target class.
         """
 
-        if self.siamese :
-            return self.get_siamese_item(index)
-
         path = self.data[index]['video']
 
         frame_indices = self.data[index]['frame_indices']
@@ -276,8 +271,6 @@ class PEV(data.Dataset):
         return clip, target, index
 
     def __len__(self):
-        if self.siamese:
-            return 1024*8*8
         return len(self.data)
 
     def _multilabel_initialize(self):
@@ -345,31 +338,6 @@ class PEV(data.Dataset):
                         dataset.append(sample_j)
 
         self.data = dataset
-
-    def get_siamese_item(self, index):
-        n_frames = 90
-        frame_indices = list(range(1, n_frames + 1))
-
-        first_video_path = None
-        second_video_path = None
-
-        if index % 2 == 0:
-            first_label, second_label = np.random.choice(
-                self.labels, 2, replace=False)
-            first_video_path = os.path.join(
-                self.root_path, np.random.choice(self.raw_data[first_label]))
-            second_video_path = os.path.join(
-                self.root_path, np.random.choice(self.raw_data[second_label]))
-
-        else:
-            label = np.random.choice(self.labels, 1, replace=False)
-            first_video, second_video = np.random.choice(
-                self.raw_data[label], 2, replace=False)
-            first_video_path = os.path.join(self.root_path, first_video)
-            second_video_path = os.path.join(self.root_path, second_video)
-
-        return self.load_video(first_video_path, frame_indices), \
-            self.load_video(second_video_path, frame_indices), index % 2, index
 
     def load_video(self, path, frame_indices):
         if self.temporal_transform is not None:
