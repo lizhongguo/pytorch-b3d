@@ -137,7 +137,6 @@ def afb1d(x, h0, h1, mode='zero', dim=-1):
         lohi = F.conv3d(x, h, padding=pad, stride=s, groups=C)
     else:
         raise ValueError("Unkown pad type: {}".format(mode))
-
     return lohi
 
 
@@ -203,9 +202,14 @@ class AFB3D(Function):
         ctx.shape = x.shape[-3:]
         mode = int_to_mode(mode)
         ctx.mode = mode
-        x_T = afb1d(x, lo_T, hi_T, mode=mode, dim=-3)
-        x_H = afb1d(x_T, lo_H, hi_H, mode=mode, dim=-2)
-        y = afb1d(x_H, lo_W, hi_W, mode=mode, dim=-1)
+
+        if lo_T is None or lo_H is None:
+            x_H = afb1d(x, lo_H, hi_H, mode=mode, dim=-2)
+            y = afb1d(x_H, lo_W, hi_W, mode=mode, dim=-1)
+        else:
+            x_T = afb1d(x, lo_T, hi_T, mode=mode, dim=-3)
+            x_H = afb1d(x_T, lo_H, hi_H, mode=mode, dim=-2)
+            y = afb1d(x_H, lo_W, hi_W, mode=mode, dim=-1)
         return y
 
     @staticmethod
@@ -214,19 +218,29 @@ class AFB3D(Function):
         if ctx.needs_input_grad[0]:
             mode = ctx.mode
             lo_T, hi_T, lo_H, hi_H, lo_W, hi_W = ctx.saved_tensors
-            s = dy.shape
-            dy = dy.reshape(s[0], -1, 8, s[2], s[3], s[4])
 
-            lll, llh, lhl, lhh, hll, hlh, hhl, hhh = torch.unbind(dy, dim=2)
-            ll = sfb1d(lll, llh, lo_W, hi_W, mode=mode, dim=4)
-            lh = sfb1d(lhl, lhh, lo_W, hi_W, mode=mode, dim=4)
-            hl = sfb1d(hll, hlh, lo_W, hi_W, mode=mode, dim=4)
-            hh = sfb1d(lll, llh, lo_W, hi_W, mode=mode, dim=4)
-            l = sfb1d(ll, lh, lo_H, hi_H, mode=mode, dim=3)
-            h = sfb1d(hl, hh, lo_H, hi_H, mode=mode, dim=3)
-            dx = sfb1d(l, h, lo_T, hi_T, mode=mode, dim=2)
+            if lo_T is None or lo_H is None:
+                s = dy.shape
+                dy = dy.reshape(s[0], -1, 4, s[2], s[3], s[4])
+                ll, lh, hl, hh = torch.unbind(dy, dim=2)
+                l = sfb1d(ll, lh, lo_W, hi_W, mode=mode, dim=-1)
+                h = sfb1d(hl, hh, lo_W, hi_W, mode=mode, dim=-1)
+                dx = sfb1d(l, h, lo_H, hi_H, mode=mode, dim=-2)
 
-        return dx, None, None, None, None, None, None, None,
+
+            else:
+                s = dy.shape
+                dy = dy.reshape(s[0], -1, 8, s[2], s[3], s[4])
+                lll, llh, lhl, lhh, hll, hlh, hhl, hhh = torch.unbind(dy, dim=2)
+                ll = sfb1d(lll, llh, lo_W, hi_W, mode=mode, dim=-1)
+                lh = sfb1d(lhl, lhh, lo_W, hi_W, mode=mode, dim=-1)
+                hl = sfb1d(hll, hlh, lo_W, hi_W, mode=mode, dim=-1)
+                hh = sfb1d(hhl, hhh, lo_W, hi_W, mode=mode, dim=-1)
+                l = sfb1d(ll, lh, lo_H, hi_H, mode=mode, dim=-2)
+                h = sfb1d(hl, hh, lo_H, hi_H, mode=mode, dim=-2)
+                dx = sfb1d(l, h, lo_T, hi_T, mode=mode, dim=-3)
+
+            return dx, None, None, None, None, None, None, None
 
 
 class DWT3D(nn.Module):
@@ -242,9 +256,10 @@ class DWT3D(nn.Module):
             padding scheme
         separable (bool): whether to do the filtering separably or not (the
             naive implementation can be faster on a gpu).
+        only_hw (bool): set True while temporal pooling is not needed
         """
 
-    def __init__(self, J=1, wave='db1', mode='zero'):
+    def __init__(self, J=1, wave='db1', mode='zero', only_hw = False):
         super().__init__()
         if isinstance(wave, str):
             wave = pywt.Wavelet(wave)
@@ -262,6 +277,7 @@ class DWT3D(nn.Module):
         # Prepare the filters
         self.filts = prep_filt_afb3d(h0_col, h1_col)
         self.mode = mode
+        self.only_hw = only_hw
 
     def forward(self, x):
         """ Forward pass of the DWT.
@@ -286,8 +302,14 @@ class DWT3D(nn.Module):
         mode = mode_to_int(self.mode)
 
         # Do a multilevel transform
-        result = AFB3D.apply(x,
+        if self.only_hw:
+            result = AFB3D.apply(x,
+                             None, None, self.filts[2], self.filts[3],
+                             self.filts[4], self.filts[5], mode)
+        else:
+            result = AFB3D.apply(x,
                              self.filts[0], self.filts[1], self.filts[2], self.filts[3],
                              self.filts[4], self.filts[5], mode)
+
 
         return result

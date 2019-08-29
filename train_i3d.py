@@ -1,9 +1,11 @@
+from tqdm import tqdm
 from confusion_matrix_figure import draw_confusion_matrix
 from multi_label_loss import MLL
 from multi_label_loss import MLLSampler
-from collections import Iterable
+from collections.abc import Iterable
+from R2Plus1D import R2Plus1DClassifier
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from spatial_transform import (
     Compose, Normalize, Scale, CenterCrop, CornerCrop, MultiScaleCornerCrop,
     MultiScaleRandomCrop, RandomHorizontalFlip, ToTensor)
@@ -28,11 +30,14 @@ import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
-parser.add_argument('--eval', type=bool, default=False)
+parser.add_argument('--eval', action='store_true')
+parser.add_argument('--batch_size', type=int, default=10)
+parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d'])
 
 args = parser.parse_args()
 top_acc = 0
@@ -41,23 +46,30 @@ top_acc = 0
 def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     logger = SummaryWriter()
 
+    if args.model == 'i3d':
+        scale_size = 224
+    elif args.model == 'r2plus1d':
+        scale_size = 112
+    else:
+        raise Exception('Model %s not implemented' % args.model)
+
     # setup dataset
-    train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], 224),
+    train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], scale_size),
                                 RandomHorizontalFlip(),
                                 ToTensor(1.0),
                                 Normalize([0, 0, 0], [1, 1, 1])
                                 ])
 
-    test_transforms = Compose([MultiScaleRandomCrop([1.0], 224),
+    test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
                                ToTensor(1.0),
                                Normalize([0, 0, 0], [1, 1, 1])
                                ])
     temporal_transforms = TemporalRandomCrop(64)
     target_transforms = ClassLabel()
-    
+
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
-    dataset = PEV('/dataset/pev_frames',
-                  '/dataset/pev_split/train_split_2.txt',
+    dataset = PEV('/home/lizhongguo/dataset/pev_frames',
+                  '/home/lizhongguo/dataset/pev_split/train_split_3.txt',
                   'training',
                   n_samples_for_each_video=6,
                   spatial_transform=train_transforms,
@@ -66,39 +78,43 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   sample_duration=64)
 
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+        dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
 
     val_dataset = PEV(
-        '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_2.txt',
+        '/home/lizhongguo/dataset/pev_frames',
+        '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'validation',
-        1,
+        6,
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
         sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+        val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
     # setup the model
-    if mode == 'flow':
-        i3d = InceptionI3d(num_classes=7, in_channels=2)
-        i3d.load_state_dict(torch.load('models/flow_imagenet.pt'))
-    else:
-        i3d = InceptionI3d(num_classes=7,
-                           in_channels=3, dropout_keep_prob=0.5)
-        i3d.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
-                             if k.find('logits') < 0}, strict=False)
+    if args.model == 'i3d':
+        if mode == 'flow':
+            model = InceptionI3d(num_classes=7, in_channels=2)
+            model.load_state_dict(torch.load('models/flow_imagenet.pt'))
+        else:
+            model = InceptionI3d(num_classes=7,
+                                 in_channels=3, dropout_keep_prob=0.5)
+            model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                   if k.find('logits') < 0}, strict=False)
+    elif args.model == 'r2plus1d':
+        model = R2Plus1DClassifier(num_classes=7)
+
     # i3d.replace_logits(157)
     # i3d.load_state_dict(torch.load('/ssd/models/000920.pt'))
-    i3d.cuda()
-    i3d = nn.DataParallel(i3d)
+    model.cuda()
+    model = nn.DataParallel(model)
 
     lr = init_lr
-    optimizer = optim.SGD(i3d.parameters(), lr=lr,
+    optimizer = optim.SGD(model.parameters(), lr=lr,
                           momentum=0.9, weight_decay=0.0000001)
     lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
 
@@ -107,24 +123,14 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     criterion = nn.CrossEntropyLoss()
     count = 0
 
-    #sampler = MLLSampler(dataloaders['train'], dataset.multi_label_shape)
-    em_steps = 80
-
     while steps < max_steps:
         count = train(
-            i3d, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
-        val(i3d, dataloaders['val'], criterion, steps, logger)
+            model, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
+        val(model, dataloaders['val'], criterion, steps, logger)
 
         # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
         dataset.undersample(dataset.root_path, dataset.raw_data, dataset.subset,
                             dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration)
-
-        if (steps+1) % em_steps == 0:
-
-            # sampler.sample_hidden_state(i3d)
-            optimizer = optim.SGD(i3d.parameters(), lr=init_lr,
-                                  momentum=0.9, weight_decay=0.0000001)
-            lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
 
         steps = steps + 1
 
@@ -145,8 +151,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     target_transforms = VideoID()
 
     val_dataset = PEV(
-        '/dataset/pev_frames',
-        '/dataset/pev_split/val_split_2.txt',
+        '/home/lizhongguo/dataset/pev_frames',
+        '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'evaluation',
         6,
         spatial_transform=test_transforms,
@@ -155,7 +161,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
 
     # setup the model
     if mode == 'flow':
@@ -224,9 +230,9 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None):
     model.train(True)
 
-    for data in dataloader:
+    for data in tqdm(dataloader):
         optimizer.zero_grad()
-        inputs, labels, _ = data        
+        inputs, labels, _ = data
 
         inputs = inputs.cuda()
         labels = labels.cuda(non_blocking=True)
@@ -245,8 +251,8 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
         logger.add_scalar('train/loss', loss.item(), count)
         logger.add_scalar('train/top1', top1, count)
 
-        print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
-              (count, loss.item(), top1, top2))
+        # print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
+        #      (count, loss.item(), top1, top2))
 
     # lr_sched.step()
     return count
@@ -261,7 +267,7 @@ def val(model, dataloader, criterion, epoch, logger=None):
     confusion_matrix = MatrixMeter(label_names)
     global top_acc
     with torch.no_grad():
-        for it, data in enumerate(dataloader):
+        for data in tqdm(dataloader):
             inputs, labels, _ = data
             inputs = inputs.cuda()
             labels = labels.cuda(non_blocking=True)
@@ -384,6 +390,7 @@ class MatrixMeter(object):
 if __name__ == '__main__':
     # need to add argparse
     if args.eval:
-        evaluate(batch_size=8)
+        evaluate(batch_size=10)
     else:
-        run(mode=args.mode, batch_size=4, save_model=args.save_model)
+        run(max_steps=160, mode=args.mode,
+            batch_size=args.batch_size, save_model=args.save_model)
