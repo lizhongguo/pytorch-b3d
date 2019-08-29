@@ -9,6 +9,23 @@ import copy
 import numpy as np
 import pdb
 
+class ImageCache():
+    def __init__(self):
+        self._cache = dict()
+
+    def set(self,k,v):
+        self._cache[k] = v
+
+    def get(self, k):
+        if k not in self._cache:
+            return None
+        else:
+            return self._cache[k]
+
+    def remove(self, k):
+        return self._cache.pop(k)
+
+imgcache = ImageCache()
 
 def pil_loader(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
@@ -35,13 +52,21 @@ def get_default_image_loader():
 
 
 def video_loader(video_dir_path, frame_indices, image_loader):
+    global imgcache
     video = []
     for i in frame_indices:
         image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
-        if os.path.exists(image_path):
-            video.append(image_loader(image_path))
+
+        ic = imgcache.get(image_path)
+        if ic is None:
+            if os.path.exists(image_path):
+                imgcache.set(image_path,image_loader(image_path))
+                video.append(imgcache.get(image_path))
+            else:
+                return video
         else:
-            return video
+            video.append(ic)
+
 
     return video
 
