@@ -150,7 +150,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
                                       (n_samples_for_each_video - 1)))
             else:
                 step = sample_duration
-            for j in range(1, n_frames, step):
+            for j in range(1, n_frames - sample_duration , step):
                 sample_j = copy.deepcopy(sample)
                 sample_j['frame_indices'] = list(
                     range(j, min(n_frames + 1, j + sample_duration)))
@@ -356,7 +356,7 @@ class PEV(data.Dataset):
                                               (n_samples_for_each_video - 1)))
                     else:
                         step = sample_duration
-                    for j in range(1, n_frames, step):
+                    for j in range(1, n_frames - sample_duration, step):
                         sample_j = copy.deepcopy(sample)
                         sample_j['frame_indices'] = list(
                             range(j, min(n_frames + 1, j + sample_duration)))
