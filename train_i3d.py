@@ -78,7 +78,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   spatial_transform=train_transforms,
                   temporal_transform=temporal_transforms,
                   target_transform=target_transforms,
-                  sample_duration=32)
+                  sample_duration=64)
 
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
@@ -91,7 +91,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=32)
+        sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
@@ -164,7 +164,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=32)
+        sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
