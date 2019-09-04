@@ -1,10 +1,11 @@
+import pdb
 from tqdm import tqdm
 from confusion_matrix_figure import draw_confusion_matrix
 from multi_label_loss import MLL
 from multi_label_loss import MLLSampler
 from collections.abc import Iterable
 from R2Plus1D import R2Plus1DClassifier
-
+from W3D import W3D
 from torch.utils.tensorboard import SummaryWriter
 from spatial_transform import (
     Compose, Normalize, Scale, CenterCrop, CornerCrop, MultiScaleCornerCrop,
@@ -30,25 +31,27 @@ import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
 parser.add_argument('--eval', action='store_true')
 parser.add_argument('--batch_size', type=int, default=10)
-parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d'])
+parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
+parser.add_argument('--lr', type=float, default=0.001)
 
 args = parser.parse_args()
 top_acc = 0
 
+#for tuning gpu to speed up training
+torch.backends.cudnn.benchmark = True
 
 def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     logger = SummaryWriter()
 
-    if args.model == 'i3d':
+    if args.model in ('i3d', ):
         scale_size = 224
-    elif args.model == 'r2plus1d':
+    elif args.model in ('r2plus1d','w3d'):
         scale_size = 112
     else:
         raise Exception('Model %s not implemented' % args.model)
@@ -75,7 +78,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   spatial_transform=train_transforms,
                   temporal_transform=temporal_transforms,
                   target_transform=target_transforms,
-                  sample_duration=64)
+                  sample_duration=32)
 
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
@@ -88,7 +91,7 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=64)
+        sample_duration=32)
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
@@ -102,15 +105,18 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
             model.load_state_dict(torch.load('models/flow_imagenet.pt'))
         else:
             model = InceptionI3d(num_classes=7,
-                                 in_channels=3, dropout_keep_prob=0.5)
+                                 in_channels=3, dropout_keep_prob=0.5, Pooling='Wavelet')
             model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                                    if k.find('logits') < 0}, strict=False)
     elif args.model == 'r2plus1d':
         model = R2Plus1DClassifier(num_classes=7)
+    elif args.model == 'w3d':
+        model = W3D(num_classes=7)
+        model.load_state_dict(torch.load('pev_i3d_best.pt'))
 
     # i3d.replace_logits(157)
     # i3d.load_state_dict(torch.load('/ssd/models/000920.pt'))
-    model.cuda()
+    model = model.cuda()
     model = nn.DataParallel(model)
 
     lr = init_lr
@@ -158,7 +164,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=64)
+        sample_duration=32)
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
@@ -251,7 +257,7 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
         logger.add_scalar('train/loss', loss.item(), count)
         logger.add_scalar('train/top1', top1, count)
 
-        # print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
+        #print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
         #      (count, loss.item(), top1, top2))
 
     # lr_sched.step()
@@ -284,9 +290,9 @@ def val(model, dataloader, criterion, epoch, logger=None):
 
         if top1.avg > top_acc:
             top_acc = top1.avg
-            torch.save(model.state_dict(),
+            torch.save(model.modules.state_dict(),
                        'pev_i3d_best.pt')
-
+        
         logger.add_scalar('val/top1', top1.avg, epoch)
         logger.add_scalar('val/top2', top2.avg, epoch)
         logger.add_scalar('val/loss', val_loss.avg, epoch)
@@ -392,5 +398,5 @@ if __name__ == '__main__':
     if args.eval:
         evaluate(batch_size=10)
     else:
-        run(max_steps=160, mode=args.mode,
+        run(init_lr=args.lr,max_steps=160, mode=args.mode,
             batch_size=args.batch_size, save_model=args.save_model)

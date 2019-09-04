@@ -8,7 +8,7 @@ import numpy as np
 import os
 import sys
 from collections import OrderedDict
-
+from DWT import DWT3D
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
     
@@ -78,6 +78,17 @@ class AvgPool3dSamePadding(nn.AvgPool3d):
         #print pad
         x = F.pad(x, pad)
         return super(AvgPool3dSamePadding, self).forward(x)
+
+class WaveletEncoding(nn.Module):
+    def __init__(self, in_channels, out_channels, only_hw=False):
+        super(WaveletEncoding,self).__init__()
+        self.dwt = DWT3D(wave='haar',only_hw=only_hw)
+        self.conv = nn.Conv3d(in_channels,out_channels,kernel_size=(1,1,1))
+
+    def forward(self, x):
+        x = self.dwt(x)
+        x = self.conv(x)
+        return x
 
 class Unit3D(nn.Module):
 
@@ -221,7 +232,7 @@ class InceptionI3d(nn.Module):
     )
 
     def __init__(self, num_classes=400, spatial_squeeze=True,
-                 final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5):
+                 final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5,Pooling='Max'):
         """Initializes I3D model instance.
         Args:
           num_classes: The number of outputs in the logit layer (default 400, which
@@ -258,8 +269,12 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
         
         end_point = 'MaxPool3d_2a_3x3'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
+        if Pooling == 'Max':
+            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
                                                              padding=0)
+        elif Pooling == 'Wavelet':
+            self.end_points[end_point] = WaveletEncoding(256,64,True)
+
         if self._final_endpoint == end_point: return
         
         end_point = 'Conv3d_2b_1x1'
@@ -273,8 +288,12 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'MaxPool3d_3a_3x3'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
+        if Pooling == 'Max':
+            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
                                                              padding=0)
+        elif Pooling == 'Wavelet':
+            self.end_points[end_point] = WaveletEncoding(192*4,192,True)
+
         if self._final_endpoint == end_point: return
         
         end_point = 'Mixed_3b'
@@ -286,8 +305,11 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'MaxPool3d_4a_3x3'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(2, 2, 2),
+        if Pooling == 'Max':
+            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(2, 2, 2),
                                                              padding=0)
+        elif Pooling == 'Wavelet':
+            self.end_points[end_point] = WaveletEncoding(480*8,480,False)
         if self._final_endpoint == end_point: return
 
         end_point = 'Mixed_4b'
@@ -311,8 +333,11 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'MaxPool3d_5a_2x2'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[2, 2, 2], stride=(2, 2, 2),
+        if Pooling == 'Max':
+            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[2, 2, 2], stride=(2, 2, 2),
                                                              padding=0)
+        elif Pooling == 'Wavelet':
+            self.end_points[end_point] = WaveletEncoding(832*8,832)
         if self._final_endpoint == end_point: return
 
         end_point = 'Mixed_5b'
@@ -324,7 +349,7 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'Logits'
-        self.avg_pool = nn.AvgPool3d(kernel_size=[8, 7, 7],
+        self.avg_pool = nn.AvgPool3d(kernel_size=[4, 7, 7],
                                      stride=(1, 1, 1))
 
         

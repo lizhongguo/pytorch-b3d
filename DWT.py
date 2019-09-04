@@ -67,12 +67,18 @@ def prep_filt_afb3d(h0, h1, device=None):
     h1 = np.array(h1[::-1]).ravel()
     t = torch.get_default_dtype()
 
-    h0_T = torch.tensor(h0, device=device, dtype=t).reshape((1, 1, -1, 1, 1))
-    h1_T = torch.tensor(h1, device=device, dtype=t).reshape((1, 1, -1, 1, 1))
-    h0_H = torch.tensor(h0, device=device, dtype=t).reshape((1, 1, 1, -1, 1))
-    h1_H = torch.tensor(h1, device=device, dtype=t).reshape((1, 1, 1, -1, 1))
-    h0_W = torch.tensor(h0, device=device, dtype=t).reshape((1, 1, 1, -1, 1))
-    h1_W = torch.tensor(h1, device=device, dtype=t).reshape((1, 1, 1, -1, 1))
+    h0_T = torch.nn.Parameter(data=torch.tensor(
+        h0, device=device, dtype=t).reshape((1, 1, -1, 1, 1)), requires_grad=False)
+    h1_T = torch.nn.Parameter(data=torch.tensor(
+        h1, device=device, dtype=t).reshape((1, 1, -1, 1, 1)), requires_grad=False)
+    h0_H = torch.nn.Parameter(data=torch.tensor(
+        h0, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
+    h1_H = torch.nn.Parameter(data=torch.tensor(
+        h1, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
+    h0_W = torch.nn.Parameter(data=torch.tensor(
+        h0, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
+    h1_W = torch.nn.Parameter(data=torch.tensor(
+        h1, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
 
     return h0_T, h1_T, h0_H, h1_H, h0_W, h1_W
 
@@ -227,11 +233,11 @@ class AFB3D(Function):
                 h = sfb1d(hl, hh, lo_W, hi_W, mode=mode, dim=-1)
                 dx = sfb1d(l, h, lo_H, hi_H, mode=mode, dim=-2)
 
-
             else:
                 s = dy.shape
                 dy = dy.reshape(s[0], -1, 8, s[2], s[3], s[4])
-                lll, llh, lhl, lhh, hll, hlh, hhl, hhh = torch.unbind(dy, dim=2)
+                lll, llh, lhl, lhh, hll, hlh, hhl, hhh = torch.unbind(
+                    dy, dim=2)
                 ll = sfb1d(lll, llh, lo_W, hi_W, mode=mode, dim=-1)
                 lh = sfb1d(lhl, lhh, lo_W, hi_W, mode=mode, dim=-1)
                 hl = sfb1d(hll, hlh, lo_W, hi_W, mode=mode, dim=-1)
@@ -259,7 +265,7 @@ class DWT3D(nn.Module):
         only_hw (bool): set True while temporal pooling is not needed
         """
 
-    def __init__(self, J=1, wave='db1', mode='zero', only_hw = False):
+    def __init__(self, J=1, wave='db1', mode='zero', only_hw=False):
         super().__init__()
         if isinstance(wave, str):
             wave = pywt.Wavelet(wave)
@@ -275,7 +281,8 @@ class DWT3D(nn.Module):
                 h0_row, h1_row = wave[2], wave[3]
 
         # Prepare the filters
-        self.filts = prep_filt_afb3d(h0_col, h1_col)
+        self.lo_T, self.hi_T, self.lo_H, self.hi_H, self.lo_W, self.hi_W = prep_filt_afb3d(
+            h0_col, h1_col, device=None)
         self.mode = mode
         self.only_hw = only_hw
 
@@ -304,12 +311,11 @@ class DWT3D(nn.Module):
         # Do a multilevel transform
         if self.only_hw:
             result = AFB3D.apply(x,
-                             None, None, self.filts[2], self.filts[3],
-                             self.filts[4], self.filts[5], mode)
+                                 None, None, self.lo_H, self.hi_H,
+                                 self.lo_W, self.hi_W, mode)
         else:
             result = AFB3D.apply(x,
-                             self.filts[0], self.filts[1], self.filts[2], self.filts[3],
-                             self.filts[4], self.filts[5], mode)
-
+                                 self.lo_T, self.hi_T, self.lo_H, self.hi_H,
+                                 self.lo_W, self.hi_W, mode)
 
         return result
