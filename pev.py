@@ -9,11 +9,12 @@ import copy
 import numpy as np
 import pdb
 
+
 class ImageCache():
     def __init__(self):
         self._cache = dict()
 
-    def set(self,k,v):
+    def set(self, k, v):
         self._cache[k] = v
 
     def get(self, k):
@@ -25,7 +26,9 @@ class ImageCache():
     def remove(self, k):
         return self._cache.pop(k)
 
+
 imgcache = ImageCache()
+
 
 def pil_loader(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
@@ -60,13 +63,12 @@ def video_loader(video_dir_path, frame_indices, image_loader):
         ic = imgcache.get(image_path)
         if ic is None:
             if os.path.exists(image_path):
-                imgcache.set(image_path,image_loader(image_path))
+                imgcache.set(image_path, image_loader(image_path))
                 video.append(imgcache.get(image_path))
             else:
                 return video
         else:
             video.append(ic)
-
 
     return video
 
@@ -150,7 +152,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
                                       (n_samples_for_each_video - 1)))
             else:
                 step = sample_duration
-            for j in range(1, n_frames - sample_duration , step):
+            for j in range(1, n_frames - sample_duration + 1, step):
                 sample_j = copy.deepcopy(sample)
                 sample_j['frame_indices'] = list(
                     range(j, min(n_frames + 1, j + sample_duration)))
@@ -356,7 +358,7 @@ class PEV(data.Dataset):
                                               (n_samples_for_each_video - 1)))
                     else:
                         step = sample_duration
-                    for j in range(1, n_frames - sample_duration, step):
+                    for j in range(1, n_frames - sample_duration + 1, step):
                         sample_j = copy.deepcopy(sample)
                         sample_j['frame_indices'] = list(
                             range(j, min(n_frames + 1, j + sample_duration)))
