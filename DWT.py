@@ -76,9 +76,9 @@ def prep_filt_afb3d(h0, h1, device=None):
     h1_H = torch.nn.Parameter(data=torch.tensor(
         h1, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
     h0_W = torch.nn.Parameter(data=torch.tensor(
-        h0, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
+        h0, device=device, dtype=t).reshape((1, 1, 1, 1, -1)), requires_grad=False)
     h1_W = torch.nn.Parameter(data=torch.tensor(
-        h1, device=device, dtype=t).reshape((1, 1, 1, -1, 1)), requires_grad=False)
+        h1, device=device, dtype=t).reshape((1, 1, 1, 1, -1)), requires_grad=False)
 
     return h0_T, h1_T, h0_H, h1_H, h0_W, h1_W
 
