@@ -68,8 +68,8 @@ if args.apex:
     args.world_size = 1
 
     if args.distributed:
-        #args.gpu = args.local_rank
-        #torch.cuda.set_device(args.gpu)
+        args.gpu = args.local_rank
+        torch.cuda.set_device(args.gpu)
         torch.distributed.init_process_group(backend='nccl',
                                             init_method='env://')
         args.world_size = torch.distributed.get_world_size()
@@ -78,6 +78,7 @@ if args.apex:
     # for tuning gpu to speed up training
     torch.backends.cudnn.benchmark = True
 
+data_root = '/dataset/tmpfs/pev_frames'
 
 def model_builder():
     # setup the model
@@ -162,7 +163,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     target_transforms = ClassLabel()
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
-    dataset = PEV('/home/lizhongguo/dataset/pev_frames',
+    dataset = PEV(data_root,
                   '/home/lizhongguo/dataset/pev_split/train_split_3.txt',
                   'training',
                   n_samples_for_each_video=6,
@@ -175,7 +176,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
 
     val_dataset = PEV(
-        '/home/lizhongguo/dataset/pev_frames',
+        data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'validation',
         6,
