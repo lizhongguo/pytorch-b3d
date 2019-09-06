@@ -36,7 +36,8 @@ parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
 parser.add_argument('--eval', action='store_true')
-parser.add_argument('--batch_size', type=int, default=10)
+parser.add_argument('--batch_size', type=int, default=8)
+parser.add_argument('--epochs', type=int, default=80)
 parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--resume', type=str, default=None)
@@ -462,5 +463,5 @@ if __name__ == '__main__':
     if args.eval:
         evaluate(batch_size=10)
     else:
-        run(max_steps=80, mode=args.mode,
+        run(max_steps=args.epochs, mode=args.mode,
             batch_size=args.batch_size, save_model=args.save_model)
