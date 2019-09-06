@@ -349,7 +349,7 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'Logits'
-        self.avg_pool = nn.AvgPool3d(kernel_size=[4, 7, 7],
+        self.avg_pool = nn.AvgPool3d(kernel_size=[8, 7, 7],
                                      stride=(1, 1, 1))
 
         

@@ -39,19 +39,109 @@ parser.add_argument('--eval', action='store_true')
 parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
 parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--resume', type=str, default=None)
+
+from apex.parallel import DistributedDataParallel as DDP
+from apex.fp16_utils import *
+from apex import amp, optimizers
+from apex.multi_tensor_apply import multi_tensor_apply
+
+parser.add_argument("--local_rank", default=0, type=int)
+parser.add_argument('--sync_bn', action='store_true',
+                    help='enabling apex sync BN.')
+parser.add_argument('--opt-level', type=str, default='O2')
+parser.add_argument('--keep-batchnorm-fp32', action='store_true')
+parser.add_argument('--loss-scale', type=float, default=128.)
+parser.add_argument('--apex', action='store_true')
+
 
 args = parser.parse_args()
 top_acc = 0
 
-#for tuning gpu to speed up training
-torch.backends.cudnn.benchmark = True
+if args.apex:
+    args.distributed = False
+    if 'WORLD_SIZE' in os.environ:
+        args.distributed = int(os.environ['WORLD_SIZE']) > 1
 
-def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
+    #args.gpu = 0
+    args.world_size = 1
+
+    if args.distributed:
+        #args.gpu = args.local_rank
+        #torch.cuda.set_device(args.gpu)
+        torch.distributed.init_process_group(backend='nccl',
+                                            init_method='env://')
+        args.world_size = torch.distributed.get_world_size()
+
+    assert torch.backends.cudnn.enabled, "Amp requires cudnn backend to be enabled."
+    # for tuning gpu to speed up training
+    torch.backends.cudnn.benchmark = True
+
+
+def model_builder():
+    # setup the model
+    if args.model == 'i3d':
+        if args.mode == 'flow':
+            model = InceptionI3d(num_classes=7, in_channels=2)
+            model.load_state_dict(torch.load('models/flow_imagenet.pt'))
+        else:
+            model = InceptionI3d(num_classes=7,
+                                 in_channels=3, dropout_keep_prob=0.5, Pooling='Max')
+            model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                   if k.find('logits') < 0}, strict=False)
+    elif args.model == 'r2plus1d':
+        model = R2Plus1DClassifier(num_classes=7)
+    elif args.model == 'w3d':
+        model = W3D(num_classes=7)
+        # model.load_state_dict(torch.load('pev_i3d_best.pt'))
+
+    if args.sync_bn and args.apex:
+        import apex
+        print("using apex synced BN")
+        model = apex.parallel.convert_syncbn_model(model)
+
+    if args.resume is not None:
+        # Use a local scope to avoid dangling references
+        def resume():
+            if os.path.isfile(args.resume):
+                print("=> loading checkpoint '{}'".format(args.resume))
+                checkpoint = torch.load(
+                    args.resume, map_location=lambda storage, loc: storage)
+                model.load_state_dict(checkpoint)
+                print("=> loaded checkpoint '{}' "
+                      .format(args.resume))
+            else:
+                print("=> no checkpoint found at '{}'".format(args.resume))
+        resume()
+
+    model = model.cuda()
+
+    #lr = args.init_lr * args.batch_size
+    lr = args.lr * args.batch_size * args.world_size / 64.
+    optimizer = optim.SGD(model.parameters(), lr=lr,
+                          momentum=0.9, weight_decay=0.0000001)
+    #lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
+    if args.apex:
+        model, optimizer = amp.initialize(model, optimizer,
+                                        opt_level=args.opt_level,
+                                        keep_batchnorm_fp32=args.keep_batchnorm_fp32,
+                                        loss_scale=args.loss_scale
+                                        )
+
+        if args.distributed:
+            model = DDP(model, delay_allreduce=True)
+    else:
+        model = nn.DataParallel(model)
+
+    return model, optimizer
+
+
+def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     logger = SummaryWriter()
 
     if args.model in ('i3d', ):
         scale_size = 224
-    elif args.model in ('r2plus1d','w3d'):
+    elif args.model in ('r2plus1d', 'w3d'):
         scale_size = 112
     else:
         raise Exception('Model %s not implemented' % args.model)
@@ -60,12 +150,12 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
     train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], scale_size),
                                 RandomHorizontalFlip(),
                                 ToTensor(1.0),
-                                Normalize([0, 0, 0], [1, 1, 1])
+                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                 ])
 
     test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
                                ToTensor(1.0),
-                               Normalize([0, 0, 0], [1, 1, 1])
+                               Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
     temporal_transforms = TemporalRandomCrop(64)
     target_transforms = ClassLabel()
@@ -98,40 +188,16 @@ def run(init_lr=0.1, max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
-    # setup the model
-    if args.model == 'i3d':
-        if mode == 'flow':
-            model = InceptionI3d(num_classes=7, in_channels=2)
-            model.load_state_dict(torch.load('models/flow_imagenet.pt'))
-        else:
-            model = InceptionI3d(num_classes=7,
-                                 in_channels=3, dropout_keep_prob=0.5, Pooling='Wavelet')
-            model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
-                                   if k.find('logits') < 0}, strict=False)
-    elif args.model == 'r2plus1d':
-        model = R2Plus1DClassifier(num_classes=7)
-    elif args.model == 'w3d':
-        model = W3D(num_classes=7)
-        model.load_state_dict(torch.load('pev_i3d_best.pt'))
-
-    # i3d.replace_logits(157)
-    # i3d.load_state_dict(torch.load('/ssd/models/000920.pt'))
-    model = model.cuda()
-    model = nn.DataParallel(model)
-
-    lr = init_lr
-    optimizer = optim.SGD(model.parameters(), lr=lr,
-                          momentum=0.9, weight_decay=0.0000001)
-    lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
+    model, optimizer = model_builder()
 
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss().cuda()
     count = 0
 
     while steps < max_steps:
         count = train(
-            model, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
+            model, dataloaders['train'], criterion, optimizer, None, count, logger)
         val(model, dataloaders['val'], criterion, steps, logger)
 
         # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
@@ -170,20 +236,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
 
     # setup the model
-    if mode == 'flow':
-        i3d = InceptionI3d(num_classes=7, in_channels=2)
-    else:
-        i3d = InceptionI3d(num_classes=7,
-                           in_channels=3, dropout_keep_prob=0.5)
-
-    # i3d.replace_logits(157)
-    state_dict = torch.load('pev_i3d_best.pt')
-    i3d.cuda()
-    i3d = nn.DataParallel(i3d)
-
-    i3d.load_state_dict(state_dict)
-
-    i3d.train(False)
+    model, _ = model_builder()
+    model.train(False)
     top1 = AverageMeter()
     top2 = AverageMeter()
     label_names = ['0', '1', '2', '3', '4', '5', '6']
@@ -192,11 +246,11 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     pred_result = dict()
 
     with torch.no_grad():
-        for it, data in enumerate(val_dataloader):
+        for data in tqdm(val_dataloader):
             inputs, labels, _ = data
             inputs = inputs.cuda()
             labels = labels.cuda(non_blocking=True)
-            output = i3d(inputs)
+            output = model(inputs)
             output = F.softmax(output, dim=1)
 
             for o, i in zip(output, labels):
@@ -237,7 +291,6 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
     model.train(True)
 
     for data in tqdm(dataloader):
-        optimizer.zero_grad()
         inputs, labels, _ = data
 
         inputs = inputs.cuda()
@@ -245,9 +298,16 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
 
         output = model(inputs)
 
+        optimizer.zero_grad()
+
         # labels follow the shape of multi label shape
         loss = criterion(output, labels)
-        loss.backward()
+
+        if args.apex:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
 
         optimizer.step()
 
@@ -257,7 +317,7 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
         logger.add_scalar('train/loss', loss.item(), count)
         logger.add_scalar('train/top1', top1, count)
 
-        #print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
+        # print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
         #      (count, loss.item(), top1, top2))
 
     # lr_sched.step()
@@ -290,9 +350,13 @@ def val(model, dataloader, criterion, epoch, logger=None):
 
         if top1.avg > top_acc:
             top_acc = top1.avg
-            torch.save(model.modules.state_dict(),
-                       'pev_i3d_best.pt')
-        
+            if hasattr(model, 'module'):
+                torch.save(model.module.state_dict(),
+                           '%s_%s_best.pt' % ('pev', args.model))
+            else:
+                torch.save(model.state_dict(),
+                           '%s_%s_best.pt' % ('pev', args.model))
+
         logger.add_scalar('val/top1', top1.avg, epoch)
         logger.add_scalar('val/top2', top2.avg, epoch)
         logger.add_scalar('val/loss', val_loss.avg, epoch)
@@ -398,5 +462,5 @@ if __name__ == '__main__':
     if args.eval:
         evaluate(batch_size=10)
     else:
-        run(init_lr=args.lr,max_steps=160, mode=args.mode,
+        run(max_steps=80, mode=args.mode,
             batch_size=args.batch_size, save_model=args.save_model)
