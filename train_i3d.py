@@ -42,11 +42,6 @@ parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--resume', type=str, default=None)
 
-from apex.parallel import DistributedDataParallel as DDP
-from apex.fp16_utils import *
-from apex import amp, optimizers
-from apex.multi_tensor_apply import multi_tensor_apply
-
 parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--sync_bn', action='store_true',
                     help='enabling apex sync BN.')
@@ -60,25 +55,32 @@ args = parser.parse_args()
 top_acc = 0
 
 if args.apex:
-    args.distributed = False
-    if 'WORLD_SIZE' in os.environ:
-        args.distributed = int(os.environ['WORLD_SIZE']) > 1
+    from apex.parallel import DistributedDataParallel as DDP
+    from apex.fp16_utils import *
+    from apex import amp, optimizers
+    from apex.multi_tensor_apply import multi_tensor_apply
+else:
+    from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 
-    #args.gpu = 0
-    args.world_size = 1
+args.distributed = False
+if 'WORLD_SIZE' in os.environ:
+    args.distributed = int(os.environ['WORLD_SIZE']) > 1
 
-    if args.distributed:
-        args.gpu = args.local_rank
-        torch.cuda.set_device(args.gpu)
-        torch.distributed.init_process_group(backend='nccl',
-                                            init_method='env://')
-        args.world_size = torch.distributed.get_world_size()
+#args.gpu = 0
+args.world_size = 1
 
-    assert torch.backends.cudnn.enabled, "Amp requires cudnn backend to be enabled."
-    # for tuning gpu to speed up training
-    torch.backends.cudnn.benchmark = True
+if args.distributed:
+    args.gpu = args.local_rank
+    torch.cuda.set_device(args.gpu)
+    torch.distributed.init_process_group(backend='nccl',
+                                        init_method='env://')
+    args.world_size = torch.distributed.get_world_size()
 
-data_root = '/dataset/tmpfs/pev_frames'
+assert torch.backends.cudnn.enabled, "Amp requires cudnn backend to be enabled."
+# for tuning gpu to speed up training
+torch.backends.cudnn.benchmark = True
+
+data_root = '/home/lizhongguo/dataset/pev_frames'
 
 def model_builder():
     # setup the model
@@ -118,8 +120,11 @@ def model_builder():
 
     model = model.cuda()
 
-    #lr = args.init_lr * args.batch_size
-    lr = args.lr * args.batch_size * args.world_size / 64.
+    if args.apex:
+        lr = args.lr * args.batch_size * args.world_size / 64.
+    else:
+        lr = args.lr * args.batch_size / 56.
+
     optimizer = optim.SGD(model.parameters(), lr=lr,
                           momentum=0.9, weight_decay=0.0000001)
     #lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
@@ -132,6 +137,8 @@ def model_builder():
 
         if args.distributed:
             model = DDP(model, delay_allreduce=True)
+    elif args.distributed:
+        model = DDP(model)
     else:
         model = nn.DataParallel(model)
 
@@ -173,7 +180,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   sample_duration=64)
 
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
+        dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=False)
 
     val_dataset = PEV(
         data_root,
@@ -186,7 +193,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
+        val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=False)
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
@@ -235,7 +242,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         sample_duration=64)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=False)
 
     # setup the model
     model, _ = model_builder()

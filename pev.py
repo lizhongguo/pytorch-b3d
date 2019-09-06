@@ -37,6 +37,12 @@ def get_default_image_loader():
 def video_loader(video_dir_path, frame_indices, image_loader):
     video = []
     for i in frame_indices:
+
+        npy_path = os.path.join(video_dir_path, '{:05d}.npy'.format(i))
+        if os.path.exists(npy_path):
+            video.append(Image.fromarray(np.load(npy_path)))
+            continue
+
         image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
 
         if os.path.exists(image_path):
