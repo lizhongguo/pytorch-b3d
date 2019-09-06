@@ -10,26 +10,6 @@ import numpy as np
 import pdb
 
 
-class ImageCache():
-    def __init__(self):
-        self._cache = dict()
-
-    def set(self, k, v):
-        self._cache[k] = v
-
-    def get(self, k):
-        if k not in self._cache:
-            return None
-        else:
-            return self._cache[k]
-
-    def remove(self, k):
-        return self._cache.pop(k)
-
-
-imgcache = ImageCache()
-
-
 def pil_loader(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
@@ -55,20 +35,14 @@ def get_default_image_loader():
 
 
 def video_loader(video_dir_path, frame_indices, image_loader):
-    global imgcache
     video = []
     for i in frame_indices:
         image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
 
-        ic = imgcache.get(image_path)
-        if ic is None:
-            if os.path.exists(image_path):
-                imgcache.set(image_path, image_loader(image_path))
-                video.append(imgcache.get(image_path))
-            else:
-                return video
+        if os.path.exists(image_path):
+            video.append(image_loader(image_path))
         else:
-            video.append(ic)
+            return video
 
     return video
 
@@ -260,12 +234,12 @@ class PEV(data.Dataset):
         #                      [4, 1, 0],
         #                      [5, 0, 1],
         #                      [6, 2, 2]]
-        #self.multi_label_shape = [7, 3, 3]
+        # self.multi_label_shape = [7, 3, 3]
 
-        #self.multi_label_num = 1
+        # self.multi_label_num = 1
         # for e in self.multi_label_shape:
         #    self.multi_label_num = self.multi_label_num * e
-        #self.multi_label_data = None
+        # self.multi_label_data = None
         # self._multilabel_initialize()
 
     def __getitem__(self, index):
