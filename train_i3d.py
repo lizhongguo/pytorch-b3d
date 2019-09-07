@@ -188,8 +188,13 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   target_transform=target_transforms,
                   sample_duration=64)
 
+    if args.distributed:
+        sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+    else:
+        sampler = None
+
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=False)
+        dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
     val_dataset = PEV(
         data_root,
@@ -201,8 +206,14 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         target_transform=target_transforms,
         sample_duration=64)
 
+    if args.distributed:
+        val_sampler = torch.utils.data.distributed.DistributedSampler(
+            val_dataset)
+    else:
+        val_sampler = None
+
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, drop_last=False)
+        val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, sampler=val_sampler, drop_last=False)
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
