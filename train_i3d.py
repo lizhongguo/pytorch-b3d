@@ -73,14 +73,20 @@ if args.distributed:
     args.gpu = args.local_rank
     torch.cuda.set_device(args.gpu)
     torch.distributed.init_process_group(backend='nccl',
-                                        init_method='env://')
+                                         init_method='env://')
     args.world_size = torch.distributed.get_world_size()
 
 assert torch.backends.cudnn.enabled, "Amp requires cudnn backend to be enabled."
 # for tuning gpu to speed up training
 torch.backends.cudnn.benchmark = True
 
-data_root = '/home/lizhongguo/dataset/pev_frames'
+#print('rank %d started' % torch.distributed.get_rank())
+
+args.main_rank = (args.distributed and torch.distributed.get_rank()
+                  == args.local_rank) or (not args.distrbuted)
+
+data_root = '/dataset/tmpfs/pev_frames'
+
 
 def model_builder():
     # setup the model
@@ -130,10 +136,10 @@ def model_builder():
     #lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
     if args.apex:
         model, optimizer = amp.initialize(model, optimizer,
-                                        opt_level=args.opt_level,
-                                        keep_batchnorm_fp32=args.keep_batchnorm_fp32,
-                                        loss_scale=args.loss_scale
-                                        )
+                                          opt_level=args.opt_level,
+                                          keep_batchnorm_fp32=args.keep_batchnorm_fp32,
+                                          loss_scale=args.loss_scale
+                                          )
 
         if args.distributed:
             model = DDP(model, delay_allreduce=True)
@@ -146,7 +152,10 @@ def model_builder():
 
 
 def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
-    logger = SummaryWriter()
+    if args.main_rank:
+        logger = SummaryWriter()
+    else:
+        logger = None
 
     if args.model in ('i3d', ):
         scale_size = 224
@@ -215,7 +224,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
         steps = steps + 1
 
-    logger.close()
+    if logger is not None:
+        logger.close()
 
 
 def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model=''):
@@ -323,8 +333,9 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
         top1, top2 = accuracy(output, labels, (1, 2))
         count = count + 1
 
-        logger.add_scalar('train/loss', loss.item(), count)
-        logger.add_scalar('train/top1', top1, count)
+        if logger is not None:
+            logger.add_scalar('train/loss', loss.item(), count)
+            logger.add_scalar('train/top1', top1, count)
 
         # print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
         #      (count, loss.item(), top1, top2))
@@ -357,7 +368,7 @@ def val(model, dataloader, criterion, epoch, logger=None):
             top1.update(a1, labels.size(0))
             top2.update(a2, labels.size(0))
 
-        if top1.avg > top_acc:
+        if top1.avg > top_acc and args.main_rank:
             top_acc = top1.avg
             if hasattr(model, 'module'):
                 torch.save(model.module.state_dict(),
@@ -366,11 +377,12 @@ def val(model, dataloader, criterion, epoch, logger=None):
                 torch.save(model.state_dict(),
                            '%s_%s_best.pt' % ('pev', args.model))
 
-        logger.add_scalar('val/top1', top1.avg, epoch)
-        logger.add_scalar('val/top2', top2.avg, epoch)
-        logger.add_scalar('val/loss', val_loss.avg, epoch)
-        logger.add_figure('val/confusion',
-                          draw_confusion_matrix(confusion_matrix._data, label_names), epoch, close=False)
+        if logger is not None:
+            logger.add_scalar('val/top1', top1.avg, epoch)
+            logger.add_scalar('val/top2', top2.avg, epoch)
+            logger.add_scalar('val/loss', val_loss.avg, epoch)
+            logger.add_figure('val/confusion',
+                              draw_confusion_matrix(confusion_matrix._data, label_names), epoch, close=False)
 
         print("Top1:%.2f Top2:%.2f" % (top1.avg, top2.avg))
 
