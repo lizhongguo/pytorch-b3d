@@ -208,8 +208,10 @@ class AFB3D(Function):
         ctx.shape = x.shape[-3:]
         mode = int_to_mode(mode)
         ctx.mode = mode
-
-        if lo_T is None or lo_H is None:
+        
+        if lo_H is None and lo_W is None:
+            y = afb1d(x, lo_T, hi_T, dim=-3)
+        elif lo_T is None:
             x_H = afb1d(x, lo_H, hi_H, mode=mode, dim=-2)
             y = afb1d(x_H, lo_W, hi_W, mode=mode, dim=-1)
         else:
@@ -225,7 +227,13 @@ class AFB3D(Function):
             mode = ctx.mode
             lo_T, hi_T, lo_H, hi_H, lo_W, hi_W = ctx.saved_tensors
 
-            if lo_T is None or lo_H is None:
+            if lo_H is None and lo_W is None:
+                s = dy.shape
+                dy = dy.reshape(s[0], -1, 2, s[2], s[3], s[4])
+                l, h = torch.unbind(dy, dim=2)
+                dx = sfb1d(l, h, lo_T, hi_T, mode=mode, dim=-3)
+
+            elif lo_T is None:
                 s = dy.shape
                 dy = dy.reshape(s[0], -1, 4, s[2], s[3], s[4])
                 ll, lh, hl, hh = torch.unbind(dy, dim=2)
@@ -265,7 +273,7 @@ class DWT3D(nn.Module):
         only_hw (bool): set True while temporal pooling is not needed
         """
 
-    def __init__(self, J=1, wave='db1', mode='zero', only_hw=False):
+    def __init__(self, J=1, wave='db1', mode='zero', dim):
         super().__init__()
         if isinstance(wave, str):
             wave = pywt.Wavelet(wave)
@@ -284,7 +292,8 @@ class DWT3D(nn.Module):
         self.lo_T, self.hi_T, self.lo_H, self.hi_H, self.lo_W, self.hi_W = prep_filt_afb3d(
             h0_col, h1_col, device=None)
         self.mode = mode
-        self.only_hw = only_hw
+        self.dim = dim
+        assert(self.dim in ('t','hw','thw'))
 
     def forward(self, x):
         """ Forward pass of the DWT.
@@ -309,7 +318,12 @@ class DWT3D(nn.Module):
         mode = mode_to_int(self.mode)
 
         # Do a multilevel transform
-        if self.only_hw:
+        if self.dim == 't':
+            result = AFB3D.apply(x,
+                                 self.lo_T, self.hi_T, None, None,
+                                 None, None, mode)
+
+        elif self.only_hw:
             result = AFB3D.apply(x,
                                  None, None, self.lo_H, self.hi_H,
                                  self.lo_W, self.hi_W, mode)
