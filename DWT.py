@@ -208,7 +208,7 @@ class AFB3D(Function):
         ctx.shape = x.shape[-3:]
         mode = int_to_mode(mode)
         ctx.mode = mode
-        
+
         if lo_H is None and lo_W is None:
             y = afb1d(x, lo_T, hi_T, dim=-3)
         elif lo_T is None:
@@ -293,7 +293,7 @@ class DWT3D(nn.Module):
             h0_col, h1_col, device=None)
         self.mode = mode
         self.dim = dim
-        assert(self.dim in ('t','hw','thw'))
+        assert(self.dim in ('t', 'hw', 'thw'))
 
     def forward(self, x):
         """ Forward pass of the DWT.
@@ -323,7 +323,7 @@ class DWT3D(nn.Module):
                                  self.lo_T, self.hi_T, None, None,
                                  None, None, mode)
 
-        elif self.only_hw:
+        elif self.dim == 'hw':
             result = AFB3D.apply(x,
                                  None, None, self.lo_H, self.hi_H,
                                  self.lo_W, self.hi_W, mode)

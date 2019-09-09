@@ -4,9 +4,9 @@ from DWT import DWT3D
 
 
 class WaveletEncoding(nn.Module):
-    def __init__(self, only_hw=False):
+    def __init__(self, dim='thw'):
         super(WaveletEncoding, self).__init__()
-        self.dwt = DWT3D(wave='haar', only_hw=only_hw)
+        self.dwt = DWT3D(wave='haar', dim=dim)
 
     def forward(self, x):
         x = self.dwt(x)
