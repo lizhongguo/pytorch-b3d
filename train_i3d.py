@@ -195,13 +195,14 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
+    val_temporal_transforms = TemporalBeginCrop(64)
     val_dataset = PEV(
         data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'validation',
         6,
         spatial_transform=test_transforms,
-        temporal_transform=temporal_transforms,
+        temporal_transform=val_temporal_transforms,
         target_transform=target_transforms,
         sample_duration=64)
 
@@ -244,11 +245,11 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 
     # setup dataset
 
-    test_transforms = Compose([MultiScaleRandomCrop([1.0], 224),
+    test_transforms = Compose([MultiScaleRandomCrop([1.0], 112),
                                ToTensor(1.0),
-                               Normalize([0, 0, 0], [1, 1, 1])
+                               Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    temporal_transforms = TemporalCenterCrop(64)
+    temporal_transforms = TemporalBeginCrop(64)
     target_transforms = VideoID()
 
     val_dataset = PEV(
@@ -491,7 +492,7 @@ class MatrixMeter(object):
 if __name__ == '__main__':
     # need to add argparse
     if args.eval:
-        evaluate(batch_size=10)
+        evaluate(batch_size=args.batch_size)
     else:
         run(max_steps=args.epochs, mode=args.mode,
             batch_size=args.batch_size, save_model=args.save_model)
