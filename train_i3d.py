@@ -83,8 +83,7 @@ torch.backends.cudnn.benchmark = True
 #print('rank %d started' % torch.distributed.get_rank())
 
 args.main_rank = (args.distributed and torch.distributed.get_rank()
-                  == args.local_rank) or (not args.distrbuted)
-
+                  == 0) or (not args.distributed)
 data_root = '/dataset/tmpfs/pev_frames'
 
 
@@ -194,7 +193,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         sampler = None
 
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
+        dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
     val_dataset = PEV(
         data_root,
@@ -213,7 +212,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         val_sampler = None
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, sampler=val_sampler, drop_last=False)
+        val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=8, pin_memory=True, sampler=val_sampler, drop_last=False)
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
