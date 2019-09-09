@@ -80,9 +80,9 @@ class AvgPool3dSamePadding(nn.AvgPool3d):
         return super(AvgPool3dSamePadding, self).forward(x)
 
 class WaveletEncoding(nn.Module):
-    def __init__(self, in_channels, out_channels, only_hw=False):
+    def __init__(self, in_channels, out_channels, dim='thw'):
         super(WaveletEncoding,self).__init__()
-        self.dwt = DWT3D(wave='haar',only_hw=only_hw)
+        self.dwt = DWT3D(wave='haar',dim=dim)
         self.conv = nn.Conv3d(in_channels,out_channels,kernel_size=(1,1,1))
 
     def forward(self, x):

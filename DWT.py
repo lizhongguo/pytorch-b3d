@@ -273,7 +273,7 @@ class DWT3D(nn.Module):
         only_hw (bool): set True while temporal pooling is not needed
         """
 
-    def __init__(self, J=1, wave='db1', mode='zero', dim):
+    def __init__(self, J=1, wave='db1', mode='zero', dim='thw'):
         super().__init__()
         if isinstance(wave, str):
             wave = pywt.Wavelet(wave)
