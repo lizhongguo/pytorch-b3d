@@ -47,7 +47,7 @@ parser.add_argument('--sync_bn', action='store_true',
                     help='enabling apex sync BN.')
 parser.add_argument('--opt-level', type=str, default='O2')
 parser.add_argument('--keep-batchnorm-fp32', action='store_true')
-parser.add_argument('--loss-scale', type=float, default=128.)
+parser.add_argument('--loss-scale', type=str, default="dynamic")
 parser.add_argument('--apex', action='store_true')
 
 
@@ -174,7 +174,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                                ToTensor(1.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    temporal_transforms = TemporalRandomCrop(64)
+    temporal_transforms = TemporalRandomCrop(32)
     target_transforms = ClassLabel()
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
@@ -185,7 +185,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   spatial_transform=train_transforms,
                   temporal_transform=temporal_transforms,
                   target_transform=target_transforms,
-                  sample_duration=64)
+                  sample_duration=32)
 
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
@@ -195,7 +195,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
-    val_temporal_transforms = TemporalBeginCrop(64)
+    val_temporal_transforms = TemporalBeginCrop(32)
     val_dataset = PEV(
         data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
@@ -204,7 +204,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         spatial_transform=test_transforms,
         temporal_transform=val_temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=64)
+        sample_duration=32)
 
     if args.distributed:
         val_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -249,7 +249,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                                ToTensor(1.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    temporal_transforms = TemporalBeginCrop(64)
+    temporal_transforms = TemporalBeginCrop(32)
     target_transforms = VideoID()
 
     val_dataset = PEV(
@@ -260,7 +260,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=64)
+        sample_duration=32)
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=False)

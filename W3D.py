@@ -21,33 +21,43 @@ class W3D(nn.Module):
     def __init__(self, num_classes, pretrained=False):
         super(W3D, self).__init__()
 
-        self.conv1 = nn.Conv3d(3, 4, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        self.pool1 = WaveletEncoding()
+        # 32 112 112
+        self.conv1 = nn.Conv3d(3, 16, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.bn1 = nn.BatchNorm3d(16, eps=0.001, momentum=0.01)
+        self.pool1 = WaveletEncoding(dim='t')
 
-        self.bn1 = nn.BatchNorm3d(4, eps=0.001, momentum=0.01)
-
-        self.conv2 = nn.Conv3d(
+        # 16 112 112
+        self.conv2a = nn.Conv3d(
             32, 32, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        self.pool2 = WaveletEncoding()
+        self.conv2b = nn.Conv3d(
+            32, 32, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.bn2 = nn.BatchNorm3d(32, eps=0.001, momentum=0.01)
+        self.pool2 = WaveletEncoding()
+
+        # 8 56 56
 
         self.conv3a = nn.Conv3d(
             256, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.conv3b = nn.Conv3d(
             256, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        self.pool3 = WaveletEncoding()
+        self.conv3c = nn.Conv3d(
+            256, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.bn3 = nn.BatchNorm3d(256, eps=0.001, momentum=0.01)
+        self.pool3 = WaveletEncoding()
+
+        # 4 28 28
 
         self.conv4a = nn.Conv3d(
             2048, 2048, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.conv4b = nn.Conv3d(
             2048, 2048, kernel_size=(3, 3, 3), padding=(1, 1, 1))
-        self.pool4 = nn.MaxPool3d(kernel_size=(
-            2, 2, 2), stride=(2, 2, 2) )
         self.bn4 = nn.BatchNorm3d(2048, eps=0.001, momentum=0.01)
+        self.pool4 = nn.MaxPool3d(kernel_size=(
+            3, 3, 3), stride=(2, 2, 2), padding=(1, 1, 1))
 
+        # 2 14 14
         self.conv5a = nn.Conv3d(
-            2048, 4096, kernel_size=(4, 1, 1) )
+            2048, 4096, kernel_size=(2, 3, 3), padding=(0, 1, 1), stride=(1, 2, 2))
 
         self.bn5 = nn.BatchNorm3d(4096, eps=0.001, momentum=0.01)
         self.pool5 = nn.MaxPool3d(kernel_size=(1, 7, 7))
@@ -61,24 +71,25 @@ class W3D(nn.Module):
         x = self.bn1(x)
         x = self.pool1(x)
 
-        x = self.conv2(x)
+        x = self.conv2a(x)
+        x = self.conv2b(x)
         x = self.bn2(x)
         x = self.pool2(x)
 
         x = self.conv3a(x)
         x = self.conv3b(x)
+        x = self.conv3c(x)
         x = self.bn3(x)
         x = self.pool3(x)
 
         x = self.conv4a(x)
         x = self.conv4b(x)
         x = self.bn4(x)
-
         x = self.pool4(x)
 
         x = self.conv5a(x)
+        #x = self.conv5b(x)
         x = self.bn5(x)
-
         x = self.pool5(x)
 
         x = x.squeeze()

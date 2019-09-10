@@ -82,6 +82,44 @@ def prep_filt_afb3d(h0, h1, device=None):
 
     return h0_T, h1_T, h0_H, h1_H, h0_W, h1_W
 
+def reflect(x, minx, maxx):
+    """Reflect the values in matrix *x* about the scalar values *minx* and
+    *maxx*.  Hence a vector *x* containing a long linearly increasing series is
+    converted into a waveform which ramps linearly up and down between *minx*
+    and *maxx*.  If *x* contains integers and *minx* and *maxx* are (integers +
+    0.5), the ramps will have repeated max and min samples.
+
+    .. codeauthor:: Rich Wareham <rjw57@cantab.net>, Aug 2013
+    .. codeauthor:: Nick Kingsbury, Cambridge University, January 1999.
+
+    """
+    x = np.asanyarray(x)
+    rng = maxx - minx
+    rng_by_2 = 2 * rng
+    mod = np.fmod(x - minx, rng_by_2)
+    normed_mod = np.where(mod < 0, mod + rng_by_2, mod)
+    out = np.where(normed_mod >= rng, rng_by_2 - normed_mod, normed_mod) + minx
+    return np.array(out, dtype=x.dtype)
+
+
+def padding(x, pad, mode='reflect'):
+    if mode == 'reflect':
+        if pad[0] > 0 and pad[1] > 0:
+            m1, m2 = pad[0], pad[1]
+            l = x.shape[-3]
+            xe = reflect(np.arange(-m1, l+m2, dtype='int32'), -0.5, l-0.5)
+            return x[:,:,xe,:,:]
+        elif pad[2] > 0 and pad[3] > 0:
+            m1, m2 = pad[2], pad[3]
+            l = x.shape[-2]
+            xe = reflect(np.arange(-m1, l+m2, dtype='int32'), -0.5, l-0.5)
+            return x[:,:,:,xe,:]
+        elif pad[4] > 0 and pad[5] > 0:
+            m1, m2 = pad[4], pad[5]
+            l = x.shape[-1]
+            xe = reflect(np.arange(-m1, l+m2, dtype='int32'), -0.5, l-0.5)
+            return x[:,:,:,:,xe]
+
 
 def afb1d(x, h0, h1, mode='zero', dim=-1):
     """ 1D analysis filter bank (along one dimension only) of an image
@@ -141,6 +179,13 @@ def afb1d(x, h0, h1, mode='zero', dim=-1):
 
         # Calculate the high and lowpass
         lohi = F.conv3d(x, h, padding=pad, stride=s, groups=C)
+    elif mode == 'reflect':
+        pad = [0, 0, 0]
+        pad[d-2] = p//2
+        x = padding(x, pad, mode)
+        # Calculate the high and lowpass
+        lohi = F.conv3d(x, h, stride=s, groups=C)
+
     else:
         raise ValueError("Unkown pad type: {}".format(mode))
     return lohi
@@ -173,6 +218,14 @@ def sfb1d(lo, hi, g0, g1, mode='zero', dim=-1):
         pad[d-2] = L-2
         y = F.conv_transpose3d(lo, g0, stride=s, padding=pad, groups=C) + \
             F.conv_transpose3d(hi, g1, stride=s, padding=pad, groups=C)
+    elif mode == 'reflect':
+        pad = [0, 0, 0]
+        pad[d-2] = L-2
+        lo = padding(lo, pad, mode)
+        hi = padding(hi, pad, mode)
+        y = F.conv_transpose3d(lo, g0, stride=s, groups=C) + \
+            F.conv_transpose3d(hi, g1, stride=s, groups=C)
+
     else:
         raise ValueError("Unkown pad type: {}".format(mode))
 
