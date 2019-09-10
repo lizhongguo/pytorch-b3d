@@ -87,7 +87,7 @@ def get_video_names_and_annotations(data, subset):
 
 
 def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
-                 sample_duration):
+                 sample_duration, sample_freq=1):
 
     # annotation[video_idx] = label
     split_list = open(annotation_path)
@@ -109,6 +109,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
             continue
         # all video's length is 90 frames
         n_frames = 90
+        n_frames = n_frames / sample_freq
 
         begin_t = 1
         end_t = n_frames
@@ -195,7 +196,8 @@ class PEV(data.Dataset):
                  temporal_transform=None,
                  target_transform=None,
                  sample_duration=16,
-                 get_loader=get_default_video_loader):
+                 get_loader=get_default_video_loader,
+                 sample_freq=1):
         # self.data = make_dataset(
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
@@ -205,19 +207,21 @@ class PEV(data.Dataset):
         self.n_samples_for_each_video = n_samples_for_each_video
         self.sample_duration = sample_duration
         self.subset = subset
+        self.sample_freq = sample_freq
+
         if subset in ['training', 'validation']:
             self.raw_data, self.min_class_len = make_raw_dataset(
                 annotation_path, subset)
 
             self.undersample(self.root_path, self.raw_data, self.subset,
-                             self.min_class_len, self.n_samples_for_each_video, self.sample_duration)
+                             self.min_class_len, self.n_samples_for_each_video, self.sample_duration, sample_freq)
 
             self.labels = self.raw_data.keys()
 
         else:
             self.data, self.id2label = make_dataset(
                 root_path, annotation_path, subset, n_samples_for_each_video,
-                sample_duration)
+                sample_duration, sample_freq)
 
         self.spatial_transform = spatial_transform
         self.temporal_transform = temporal_transform
@@ -262,7 +266,8 @@ class PEV(data.Dataset):
 
         if self.temporal_transform is not None:
             frame_indices = self.temporal_transform(frame_indices)
-
+        if self.sample_freq > 1:
+            frame_indices = [idx*self.sample_freq for idx in frame_indices]
         clip = self.loader(path, frame_indices)
 
         if self.spatial_transform is not None:
@@ -300,7 +305,7 @@ class PEV(data.Dataset):
             self.data[data_idx]['label'][dim_index] = l.item()
 
     def undersample(self, root_path, raw_dataset, subset, min_class_len, n_samples_for_each_video,
-                    sample_duration):
+                    sample_duration, sample_frq=1):
         dataset = []
 
         v_id = 0
@@ -315,6 +320,7 @@ class PEV(data.Dataset):
                     continue
                 # all video's length is 90 frames
                 n_frames = 90
+                n_frames = n_frames / sample_frq
 
                 begin_t = 1
                 end_t = n_frames

@@ -11,7 +11,7 @@ from spatial_transform import (
     Compose, Normalize, Scale, CenterCrop, CornerCrop, MultiScaleCornerCrop,
     MultiScaleRandomCrop, RandomHorizontalFlip, ToTensor)
 from target_transform import ClassLabel, VideoID
-from temporal_transform import TemporalRandomCrop, TemporalCenterCrop, TemporalBeginCrop
+from temporal_transform import TemporalRandomCrop, TemporalCenterCrop, TemporalBeginCrop, LoopPadding
 from pev import PEV
 from charades_dataset import Charades as Dataset
 from pytorch_i3d import InceptionI3d
@@ -174,7 +174,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                                ToTensor(1.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    temporal_transforms = TemporalRandomCrop(32)
+    temporal_transforms = Compose([TemporalRandomCrop(32),
+                                   LoopPadding(32)])
     target_transforms = ClassLabel()
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
@@ -195,7 +196,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
-    val_temporal_transforms = TemporalBeginCrop(32)
+    val_temporal_transforms = Compose([TemporalBeginCrop(32),
+                                       LoopPadding(32)])
     val_dataset = PEV(
         data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
@@ -231,7 +233,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
         # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
         dataset.undersample(dataset.root_path, dataset.raw_data, dataset.subset,
-                            dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration)
+                            dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration, dataset.sample_freq)
 
         steps = steps + 1
 
