@@ -15,7 +15,7 @@ def pil_loader(path, mode):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             if mode == 'rgb':
-                return img.conver('RGB')
+                return img.convert('RGB')
             else:
                 return img.convert('L')
 
@@ -48,7 +48,7 @@ def video_loader(video_dir_path, frame_indices, mode='rgb', image_loader=None):
                 video.append(Image.fromarray(np.load(npy_path)))
                 continue
             '''
-            image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
+            image_path = os.path.join(video_dir_path, 'img_{:05d}.jpg'.format(i))
             video.append(image_loader(image_path, mode))
 
         elif mode == 'flow_x':
@@ -119,7 +119,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
         if not os.path.exists(video_path):
             continue
         # all video's length is 90 frames
-        n_frames = 90
+        n_frames = 89
         n_frames = n_frames // sample_freq
 
         begin_t = 1
@@ -346,7 +346,7 @@ class PEV(data.Dataset):
                 if not os.path.exists(video_path):
                     continue
                 # all video's length is 90 frames
-                n_frames = 90
+                n_frames = 89
                 n_frames = n_frames // sample_freq
 
                 begin_t = 1
