@@ -10,11 +10,14 @@ import numpy as np
 import pdb
 
 
-def pil_loader(path):
+def pil_loader(path, mode):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
         with Image.open(f) as img:
-            return img.convert('RGB')
+            if mode == 'rgb':
+                return img.conver('RGB')
+            else:
+                return img.convert('L')
 
 
 def accimage_loader(path):
@@ -46,17 +49,17 @@ def video_loader(video_dir_path, frame_indices, mode='rgb', image_loader=None):
                 continue
             '''
             image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
-            video.append(image_loader(image_path))
+            video.append(image_loader(image_path, mode))
 
         elif mode == 'flow_x':
             image_path = os.path.join(
                 video_dir_path, 'flow_x_{:05d}.jpg'.format(i))
-            video.append(image_loader(image_path))
+            video.append(image_loader(image_path, mode))
 
         elif mode == 'flow_y':
             image_path = os.path.join(
                 video_dir_path, 'flow_y_{:05d}.jpg'.format(i))
-            video.append(image_loader(image_path))
+            video.append(image_loader(image_path, mode))
 
     return video
 
@@ -289,21 +292,17 @@ class PEV(data.Dataset):
         elif self.mode == 'flow':
 
             flow_x = self.loader(path, frame_indices, 'flow_x')
+            flow_y = self.loader(path, frame_indices, 'flow_y')
+
             if self.spatial_transform is not None:
                 self.spatial_transform.randomize_parameters()
                 flow_x = [self.spatial_transform(img) for img in flow_x]
-            
-            flow_y = self.loader(path, frame_indices, 'flow_y')
-            if self.spatial_transform is not None:
-                self.spatial_transform.randomize_parameters()
                 flow_y = [self.spatial_transform(img) for img in flow_y]
 
             flow_x = torch.stack(flow_x, 0)
             flow_y = torch.stack(flow_y, 0)
             clip = torch.cat((flow_x,flow_y), dim=1)
-            
             clip = clip.permute(1, 0, 2, 3)
-
         target = self.data[index]
         if self.target_transform is not None:
             target = self.target_transform(target)

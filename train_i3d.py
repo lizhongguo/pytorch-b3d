@@ -41,7 +41,8 @@ parser.add_argument('--epochs', type=int, default=80)
 parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--sample_freq', type=int, default=1)
-parser.add_argument('--n_samples', type=int, default=6, help='num of samples for each video')
+parser.add_argument('--n_samples', type=int, default=6,
+                    help='num of samples for each video')
 parser.add_argument('--clip_len', type=int, default=32)
 parser.add_argument('--resume', type=str, default=None)
 
@@ -87,7 +88,7 @@ torch.backends.cudnn.benchmark = True
 
 args.main_rank = (args.distributed and torch.distributed.get_rank()
                   == 0) or (not args.distributed)
-data_root = '/home/lizhongguo/dataset/pev_frames'
+data_root = '/home/lizhongguo/dataset/pev_of'
 
 
 def model_builder():
@@ -95,7 +96,8 @@ def model_builder():
     if args.model == 'i3d':
         if args.mode == 'flow':
             model = InceptionI3d(num_classes=7, in_channels=2)
-            model.load_state_dict(torch.load('models/flow_imagenet.pt'))
+            model.load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
+                                   if k.find('logits') < 0}, strict=False)
         else:
             model = InceptionI3d(num_classes=7,
                                  in_channels=3, dropout_keep_prob=0.5, Pooling='Max')
@@ -396,6 +398,13 @@ def val(model, dataloader, criterion, epoch, logger=None):
             else:
                 torch.save(model.state_dict(),
                            '%s_%s_best.pt' % ('pev', args.model))
+
+        if hasattr(model, 'module'):
+            torch.save(model.module.state_dict(),
+                       '%s_%s_last.pt' % ('pev', args.model))
+        else:
+            torch.save(model.state_dict(),
+                       '%s_%s_last.pt' % ('pev', args.model))
 
         if logger is not None:
             logger.add_scalar('val/top1', top1.avg, epoch)

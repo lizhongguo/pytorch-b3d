@@ -58,11 +58,10 @@ class W3D(nn.Module):
         # 2 14 14
         self.conv5a = nn.Conv3d(
             2048, 4096, kernel_size=(2, 3, 3), padding=(0, 1, 1), stride=(1, 2, 2))
-
         self.bn5 = nn.BatchNorm3d(4096, eps=0.001, momentum=0.01)
-        self.pool5 = nn.MaxPool3d(kernel_size=(1, 7, 7))
+        self.pool5 = nn.MaxPool3d(kernel_size=(2, 14, 14))
 
-        self.fc8 = nn.Linear(4096, num_classes)
+        self.fc8 = nn.Linear(2048, num_classes)
 
         self.dropout = nn.Dropout(p=0.5)
 
@@ -87,9 +86,9 @@ class W3D(nn.Module):
         x = self.bn4(x)
         x = self.pool4(x)
 
-        x = self.conv5a(x)
+        #x = self.conv5a(x)
         #x = self.conv5b(x)
-        x = self.bn5(x)
+        #x = self.bn5(x)
         x = self.pool5(x)
 
         x = x.squeeze()
