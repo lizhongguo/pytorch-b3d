@@ -203,8 +203,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
-    val_temporal_transforms = Compose([TemporalBeginCrop(32),
-                                       RepeatPadding(32)])
+    val_temporal_transforms = Compose([TemporalBeginCrop(clip_len),
+                                       RepeatPadding(clip_len)])
     val_dataset = PEV(
         data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
