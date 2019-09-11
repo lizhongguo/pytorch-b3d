@@ -17,6 +17,20 @@ class LoopPadding(object):
 
         return out
 
+class RepeatPadding(object):
+
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, frame_indices):
+        out = frame_indices
+
+        while True:
+            if len(out) >= self.size:
+                break
+            out.append(out[-1])
+
+        return out
 
 class TemporalBeginCrop(object):
     """Temporally crop the given frame indices at a beginning.

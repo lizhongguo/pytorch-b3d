@@ -11,7 +11,7 @@ from spatial_transform import (
     Compose, Normalize, Scale, CenterCrop, CornerCrop, MultiScaleCornerCrop,
     MultiScaleRandomCrop, RandomHorizontalFlip, ToTensor)
 from target_transform import ClassLabel, VideoID
-from temporal_transform import TemporalRandomCrop, TemporalCenterCrop, TemporalBeginCrop, LoopPadding
+from temporal_transform import TemporalRandomCrop, TemporalCenterCrop, TemporalBeginCrop, LoopPadding, RepeatPadding
 from pev import PEV
 from charades_dataset import Charades as Dataset
 from pytorch_i3d import InceptionI3d
@@ -40,6 +40,9 @@ parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--epochs', type=int, default=80)
 parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
 parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--sample_freq', type=int, default=1)
+parser.add_argument('--n_samples', type=int, default=6, help='num of samples for each video')
+parser.add_argument('--clip_len', type=int, default=32)
 parser.add_argument('--resume', type=str, default=None)
 
 parser.add_argument("--local_rank", default=0, type=int)
@@ -84,7 +87,7 @@ torch.backends.cudnn.benchmark = True
 
 args.main_rank = (args.distributed and torch.distributed.get_rank()
                   == 0) or (not args.distributed)
-data_root = '/dataset/tmpfs/pev_frames'
+data_root = '/home/lizhongguo/dataset/pev_frames'
 
 
 def model_builder():
@@ -174,19 +177,21 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                                ToTensor(1.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    temporal_transforms = Compose([TemporalRandomCrop(32),
-                                   LoopPadding(32)])
+
+    clip_len = args.clip_len
+    temporal_transforms = Compose([TemporalRandomCrop(clip_len),
+                                   RepeatPadding(clip_len)])
     target_transforms = ClassLabel()
 
     #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
     dataset = PEV(data_root,
                   '/home/lizhongguo/dataset/pev_split/train_split_3.txt',
                   'training',
-                  n_samples_for_each_video=6,
+                  n_samples_for_each_video=args.n_samples,
                   spatial_transform=train_transforms,
                   temporal_transform=temporal_transforms,
                   target_transform=target_transforms,
-                  sample_duration=32)
+                  sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
 
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
@@ -197,16 +202,16 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
 
     val_temporal_transforms = Compose([TemporalBeginCrop(32),
-                                       LoopPadding(32)])
+                                       RepeatPadding(32)])
     val_dataset = PEV(
         data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'validation',
-        6,
+        args.n_samples,
         spatial_transform=test_transforms,
         temporal_transform=val_temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=32)
+        sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
 
     if args.distributed:
         val_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -251,18 +256,20 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                                ToTensor(1.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    temporal_transforms = TemporalBeginCrop(32)
-    target_transforms = VideoID()
+    clip_len = 32
 
+    temporal_transforms = Compose(
+        [TemporalBeginCrop(clip_len), RepeatPadding(clip_len)])
+    target_transforms = VideoID()
     val_dataset = PEV(
         '/home/lizhongguo/dataset/pev_frames',
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'evaluation',
-        6,
+        args.n_samples,
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=32)
+        sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=False)

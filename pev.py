@@ -34,21 +34,29 @@ def get_default_image_loader():
         return pil_loader
 
 
-def video_loader(video_dir_path, frame_indices, image_loader):
+def video_loader(video_dir_path, frame_indices, mode='rgb', image_loader=None):
     video = []
     for i in frame_indices:
 
-        npy_path = os.path.join(video_dir_path, '{:05d}.npy'.format(i))
-        if os.path.exists(npy_path):
-            video.append(Image.fromarray(np.load(npy_path)))
-            continue
-
-        image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
-
-        if os.path.exists(image_path):
+        if mode == 'rgb':
+            '''
+            npy_path = os.path.join(video_dir_path, '{:05d}.npy'.format(i))
+            if os.path.exists(npy_path):
+                video.append(Image.fromarray(np.load(npy_path)))
+                continue
+            '''
+            image_path = os.path.join(video_dir_path, '{:05d}.jpg'.format(i))
             video.append(image_loader(image_path))
-        else:
-            return video
+
+        elif mode == 'flow_x':
+            image_path = os.path.join(
+                video_dir_path, 'flow_x_{:05d}.jpg'.format(i))
+            video.append(image_loader(image_path))
+
+        elif mode == 'flow_y':
+            image_path = os.path.join(
+                video_dir_path, 'flow_y_{:05d}.jpg'.format(i))
+            video.append(image_loader(image_path))
 
     return video
 
@@ -109,7 +117,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
             continue
         # all video's length is 90 frames
         n_frames = 90
-        n_frames = n_frames / sample_freq
+        n_frames = n_frames // sample_freq
 
         begin_t = 1
         end_t = n_frames
@@ -197,7 +205,8 @@ class PEV(data.Dataset):
                  target_transform=None,
                  sample_duration=16,
                  get_loader=get_default_video_loader,
-                 sample_freq=1):
+                 sample_freq=1,
+                 mode='rgb'):
         # self.data = make_dataset(
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
@@ -208,7 +217,7 @@ class PEV(data.Dataset):
         self.sample_duration = sample_duration
         self.subset = subset
         self.sample_freq = sample_freq
-
+        self.mode = mode
         if subset in ['training', 'validation']:
             self.raw_data, self.min_class_len = make_raw_dataset(
                 annotation_path, subset)
@@ -268,13 +277,32 @@ class PEV(data.Dataset):
             frame_indices = self.temporal_transform(frame_indices)
         if self.sample_freq > 1:
             frame_indices = [idx*self.sample_freq for idx in frame_indices]
-        clip = self.loader(path, frame_indices)
 
-        if self.spatial_transform is not None:
-            self.spatial_transform.randomize_parameters()
-            clip = [self.spatial_transform(img) for img in clip]
+        if self.mode == 'rgb':
+            clip = self.loader(path, frame_indices, 'rgb')
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
+                clip = [self.spatial_transform(img) for img in clip]
 
-        clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
+            clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
+
+        elif self.mode == 'flow':
+
+            flow_x = self.loader(path, frame_indices, 'flow_x')
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
+                flow_x = [self.spatial_transform(img) for img in flow_x]
+            
+            flow_y = self.loader(path, frame_indices, 'flow_y')
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
+                flow_y = [self.spatial_transform(img) for img in flow_y]
+
+            flow_x = torch.stack(flow_x, 0)
+            flow_y = torch.stack(flow_y, 0)
+            clip = torch.cat((flow_x,flow_y), dim=1)
+            
+            clip = clip.permute(1, 0, 2, 3)
 
         target = self.data[index]
         if self.target_transform is not None:
@@ -305,7 +333,7 @@ class PEV(data.Dataset):
             self.data[data_idx]['label'][dim_index] = l.item()
 
     def undersample(self, root_path, raw_dataset, subset, min_class_len, n_samples_for_each_video,
-                    sample_duration, sample_frq=1):
+                    sample_duration, sample_freq=1):
         dataset = []
 
         v_id = 0
@@ -320,7 +348,7 @@ class PEV(data.Dataset):
                     continue
                 # all video's length is 90 frames
                 n_frames = 90
-                n_frames = n_frames / sample_frq
+                n_frames = n_frames // sample_freq
 
                 begin_t = 1
                 end_t = n_frames
@@ -351,15 +379,3 @@ class PEV(data.Dataset):
                         dataset.append(sample_j)
 
         self.data = dataset
-
-    def load_video(self, path, frame_indices):
-        if self.temporal_transform is not None:
-            frame_indices = self.temporal_transform(frame_indices)
-
-        clip = self.loader(path, frame_indices)
-
-        if self.spatial_transform is not None:
-            self.spatial_transform.randomize_parameters()
-            clip = [self.spatial_transform(img) for img in clip]
-
-        clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
