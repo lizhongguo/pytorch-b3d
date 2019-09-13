@@ -253,8 +253,14 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     logger = SummaryWriter()
 
     # setup dataset
+    if args.model in ('i3d', ):
+        scale_size = 224
+    elif args.model in ('r2plus1d', 'w3d'):
+        scale_size = 112
+    else:
+        raise Exception('Model %s not implemented' % args.model)
 
-    test_transforms = Compose([MultiScaleRandomCrop([1.0], 112),
+    test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
                                ToTensor(1.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
@@ -264,7 +270,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         [TemporalBeginCrop(clip_len), RepeatPadding(clip_len)])
     target_transforms = VideoID()
     val_dataset = PEV(
-        '/home/lizhongguo/dataset/pev_frames',
+        data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
         'evaluation',
         args.n_samples,

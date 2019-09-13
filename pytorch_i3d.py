@@ -232,7 +232,7 @@ class InceptionI3d(nn.Module):
     )
 
     def __init__(self, num_classes=400, spatial_squeeze=True,
-                 final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5,Pooling='Max'):
+                 final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5):
         """Initializes I3D model instance.
         Args:
           num_classes: The number of outputs in the logit layer (default 400, which
@@ -269,12 +269,8 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
         
         end_point = 'MaxPool3d_2a_3x3'
-        if Pooling == 'Max':
-            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
                                                              padding=0)
-        elif Pooling == 'Wavelet':
-            self.end_points[end_point] = WaveletPooling(64,64,dim='hw')
-
         if self._final_endpoint == end_point: return
         
         end_point = 'Conv3d_2b_1x1'
@@ -288,12 +284,8 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'MaxPool3d_3a_3x3'
-        if Pooling == 'Max':
-            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
                                                              padding=0)
-        elif Pooling == 'Wavelet':
-            self.end_points[end_point] = WaveletPooling(192,192,dim='hw')
-
         if self._final_endpoint == end_point: return
         
         end_point = 'Mixed_3b'
@@ -305,11 +297,8 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point: return
 
         end_point = 'MaxPool3d_4a_3x3'
-        if Pooling == 'Max':
-            self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(2, 2, 2),
-                                                    padding=0)
-        elif Pooling == 'Wavelet':
-            self.end_points[end_point] = WaveletPooling(480,480)
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(2, 2, 2),
+                                                padding=0)
         if self._final_endpoint == end_point: return
 
         end_point = 'Mixed_4b'
