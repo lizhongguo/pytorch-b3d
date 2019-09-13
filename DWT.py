@@ -163,8 +163,10 @@ def afb1d(x, h0, h1, mode='zero', dim=-1):
     h = torch.cat([h0, h1] * C, dim=0)
 
     # Calculate the pad size
-    outsize = pywt.dwt_coeff_len(N, L, mode=mode)
-    p = 2 * (outsize - 1) - N + L
+    #outsize = pywt.dwt_coeff_len(N, L, mode=mode)
+    #p = 2 * (outsize - 1) - N + L
+    #print(outsize, N, L, p)
+    p = L - 2
     if mode == 'zero':
         # Sadly, pytorch only allows for same padding before and after, if
         # we need to do more padding after for odd length signals, have to
@@ -188,6 +190,7 @@ def afb1d(x, h0, h1, mode='zero', dim=-1):
 
     else:
         raise ValueError("Unkown pad type: {}".format(mode))
+    #print(lohi.shape)
     return lohi
 
 
@@ -213,14 +216,16 @@ def sfb1d(lo, hi, g0, g1, mode='zero', dim=-1):
     g0 = torch.cat([g0]*C, dim=0)
     g1 = torch.cat([g1]*C, dim=0)
 
+    #print(lo.shape,hi.shape)
+
     if mode == 'zero':
         pad = [0, 0, 0]
-        pad[d-2] = L-2
+        pad[d-2] = (L-2)//2
         y = F.conv_transpose3d(lo, g0, stride=s, padding=pad, groups=C) + \
             F.conv_transpose3d(hi, g1, stride=s, padding=pad, groups=C)
     elif mode == 'reflect':
         pad = [0, 0, 0]
-        pad[d-2] = L-2
+        pad[d-2] = (L-2)//2
         lo = padding(lo, pad, mode)
         hi = padding(hi, pad, mode)
         y = F.conv_transpose3d(lo, g0, stride=s, groups=C) + \
