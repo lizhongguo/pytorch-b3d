@@ -48,7 +48,8 @@ def video_loader(video_dir_path, frame_indices, mode='rgb', image_loader=None):
                 video.append(Image.fromarray(np.load(npy_path)))
                 continue
             '''
-            image_path = os.path.join(video_dir_path, 'img_{:05d}.jpg'.format(i))
+            image_path = os.path.join(
+                video_dir_path, 'img_{:05d}.jpg'.format(i))
             video.append(image_loader(image_path, mode))
 
         elif mode == 'flow_x':
@@ -301,8 +302,26 @@ class PEV(data.Dataset):
 
             flow_x = torch.stack(flow_x, 0)
             flow_y = torch.stack(flow_y, 0)
-            clip = torch.cat((flow_x,flow_y), dim=1)
+            clip = torch.cat((flow_x, flow_y), dim=1)
             clip = clip.permute(1, 0, 2, 3)
+
+        elif self.mode == 'rgb+flow':
+            rgb = self.loader(path, frame_indices, 'rgb')
+            flow_x = self.loader(path, frame_indices, 'flow_x')
+            flow_y = self.loader(path, frame_indices, 'flow_y')
+
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
+                rgb = [self.spatial_transform(img) for img in rgb]
+                flow_x = [self.spatial_transform(img) for img in flow_x]
+                flow_y = [self.spatial_transform(img) for img in flow_y]
+
+            flow_x = torch.stack(flow_x, 0)
+            flow_y = torch.stack(flow_y, 0)
+            rgb = torch.stack(rgb, 0)
+            clip = torch.cat((rgb, flow_x, flow_y), dim=1)
+            clip = clip.permute(1, 0, 2, 3)
+
         target = self.data[index]
         if self.target_transform is not None:
             target = self.target_transform(target)

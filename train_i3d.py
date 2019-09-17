@@ -31,11 +31,14 @@ import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
 
+from mi3d import MInceptionI3d
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
 parser.add_argument('--eval', action='store_true')
+parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--epochs', type=int, default=80)
 parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
@@ -98,11 +101,17 @@ def model_builder():
             model = InceptionI3d(num_classes=7, in_channels=2)
             model.load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
                                    if k.find('logits') < 0}, strict=False)
-        else:
+        elif args.mode == 'rgb':
             model = InceptionI3d(num_classes=7,
-                                 in_channels=3, dropout_keep_prob=0.5, Pooling='Max')
+                                 in_channels=3, dropout_keep_prob=0.5)
             model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                                    if k.find('logits') < 0}, strict=False)
+        elif args.mode == 'rgb+flow':
+            model = MInceptionI3d(num_classes=7,
+                                 in_channels=5, dropout_keep_prob=0.5)
+            model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                   if k.find('logits') < 0}, strict=False)
+
     elif args.model == 'r2plus1d':
         model = R2Plus1DClassifier(num_classes=7)
     elif args.model == 'w3d':
@@ -171,12 +180,12 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     # setup dataset
     train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], scale_size),
                                 RandomHorizontalFlip(),
-                                ToTensor(1.0),
+                                ToTensor(255.0),
                                 Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                 ])
 
     test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
-                               ToTensor(1.0),
+                               ToTensor(255.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
 
@@ -201,18 +210,18 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         sampler = None
 
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=8, pin_memory=True, sampler=sampler, drop_last=False)
+        dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=2, pin_memory=True, sampler=sampler, drop_last=False)
 
     val_temporal_transforms = Compose([TemporalBeginCrop(clip_len),
                                        RepeatPadding(clip_len)])
     val_dataset = PEV(
         data_root,
         '/home/lizhongguo/dataset/pev_split/val_split_3.txt',
-        'validation',
+        'evaluation',
         args.n_samples,
         spatial_transform=test_transforms,
         temporal_transform=val_temporal_transforms,
-        target_transform=target_transforms,
+        target_transform=VideoID(),
         sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
 
     if args.distributed:
@@ -222,11 +231,14 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         val_sampler = None
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=8, pin_memory=True, sampler=val_sampler, drop_last=False)
+        val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=2, pin_memory=True, sampler=val_sampler, drop_last=False)
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
     model, optimizer = model_builder()
+
+    if args.model == 'w3d':
+        model.logger = logger
 
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
@@ -261,10 +273,10 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         raise Exception('Model %s not implemented' % args.model)
 
     test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
-                               ToTensor(1.0),
+                               ToTensor(255.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    clip_len = 32
+    clip_len = args.clip_len
 
     temporal_transforms = Compose(
         [TemporalBeginCrop(clip_len), RepeatPadding(clip_len)])
@@ -280,7 +292,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
 
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=False)
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=False)
 
     # setup the model
     model, _ = model_builder()
@@ -380,46 +392,63 @@ def val(model, dataloader, criterion, epoch, logger=None):
     label_names = ['0', '1', '2', '3', '4', '5', '6']
     confusion_matrix = MatrixMeter(label_names)
     global top_acc
+
+    pred_result = dict()
+
     with torch.no_grad():
         for data in tqdm(dataloader):
             inputs, labels, _ = data
             inputs = inputs.cuda()
             labels = labels.cuda(non_blocking=True)
             output = model(inputs)
+            output = F.softmax(output, dim=1)
 
-            loss = criterion(output, labels)
-            val_loss.update(loss.item(), labels.size(0))
+            for o, i in zip(output, labels):
+                if i not in pred_result:
+                    pred_result[i] = []
+                pred_result[i].append(o)
 
-            a1, a2 = accuracy(output, labels, (1, 2))
-            update_confusion_matrix(confusion_matrix, output, labels)
+        for i in pred_result:
+            avg_pred = torch.stack(
+                tuple(o for o in pred_result[i]), dim=0).mean(dim=0)
+            target = dataloader.dataset.id2label[i.item()]
+            _, prediction = avg_pred.topk(2)
+            prediction = prediction.tolist()
+            if target == prediction[0]:
+                top1.update(1., n=1)
+            else:
+                top1.update(0., n=1)
 
-            top1.update(a1, labels.size(0))
-            top2.update(a2, labels.size(0))
+            if target in prediction:
+                top2.update(1., n=1)
+            else:
+                top2.update(0., n=1)
+
+            confusion_matrix.update(prediction[0], target)
 
         if top1.avg > top_acc and args.main_rank:
             top_acc = top1.avg
             if hasattr(model, 'module'):
                 torch.save(model.module.state_dict(),
-                           '%s_%s_best.pt' % ('pev', args.model))
+                           '%s_%s_%s_best.pt' % ('pev', args.model, args.mode))
             else:
                 torch.save(model.state_dict(),
-                           '%s_%s_best.pt' % ('pev', args.model))
+                           '%s_%s_%s_best.pt' % ('pev', args.model, args.mode))
 
         if hasattr(model, 'module'):
             torch.save(model.module.state_dict(),
-                       '%s_%s_last.pt' % ('pev', args.model))
+                       '%s_%s_%s_last.pt' % ('pev', args.model, args.mode))
         else:
             torch.save(model.state_dict(),
-                       '%s_%s_last.pt' % ('pev', args.model))
+                       '%s_%s_%s_last.pt' % ('pev', args.model, args.mode))
 
         if logger is not None:
-            logger.add_scalar('val/top1', top1.avg, epoch)
-            logger.add_scalar('val/top2', top2.avg, epoch)
-            logger.add_scalar('val/loss', val_loss.avg, epoch)
+            logger.add_scalar('val/top1', 100*top1.avg, epoch)
+            logger.add_scalar('val/top2', 100*top2.avg, epoch)
             logger.add_figure('val/confusion',
                               draw_confusion_matrix(confusion_matrix._data, label_names), epoch, close=False)
 
-        print("Top1:%.2f Top2:%.2f" % (top1.avg, top2.avg))
+        print("Top1:%.2f Top2:%.2f" % (100*top1.avg, 100*top2.avg))
 
 
 def accuracy(output, target, topk=(1,)):

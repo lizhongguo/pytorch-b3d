@@ -3,12 +3,12 @@ import torch.nn as nn
 from DWT import DWT3D
 from torch.nn.modules.utils import _triple
 import math
-
+from torchvision.utils import make_grid
 
 class WaveletEncoding(nn.Module):
     def __init__(self, dim='thw'):
         super(WaveletEncoding, self).__init__()
-        self.dwt = DWT3D(wave='db4', dim=dim)
+        self.dwt = DWT3D(wave='db1', dim=dim)
 
     def forward(self, x):
         x = self.dwt(x)
@@ -37,6 +37,7 @@ class WaveletPooling(nn.Module):
         y = self.conv(self.dwt(input))
         return y
 
+
 class W3D(nn.Module):
     """
     The W3D network.
@@ -46,23 +47,27 @@ class W3D(nn.Module):
         super(W3D, self).__init__()
 
         # 32 112 112
-        self.conv1a = nn.Conv3d(3, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1))
-        self.conv1b = nn.Conv3d(64,64,kernel_size=(1, 3, 3), padding=(0, 1, 1))
+        self.conv1a = nn.Conv3d(
+            3, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1))
+        self.conv1b = nn.Conv3d(
+            64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1))
+        
         self.pool1 = WaveletEncoding(dim='t')
 
         # 16 112 112
         self.conv2a = nn.Conv3d(
-            128, 128, kernel_size=(1, 3, 3), padding=(0, 1, 1))
+            128, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.conv2b = nn.Conv3d(
-            128, 128, kernel_size=(1, 3, 3), padding=(0, 1, 1))
-        self.pool2 = WaveletEncoding()
+            256, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.pool2 = nn.MaxPool3d(kernel_size=(
+            3, 3, 3), stride=(2, 2, 2), padding=(1, 1, 1))
 
         # 8 56 56
-
         self.conv3a = nn.Conv3d(
-            1024, 1024, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+            512, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.conv3b = nn.Conv3d(
-            1024, 1024, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+            512, 1024, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+
         self.pool3 = nn.MaxPool3d(kernel_size=(
             3, 3, 3), stride=(2, 2, 2), padding=(1, 1, 1))
 
@@ -80,14 +85,26 @@ class W3D(nn.Module):
             1024, 1024, kernel_size=(1, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.pool5 = nn.MaxPool3d(kernel_size=(2, 14, 14))
 
-        self.fc8 = nn.Linear(1024, num_classes)
+        self.logits = nn.Conv3d(
+            1024, num_classes, kernel_size=(1, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
 
         self.dropout = nn.Dropout(p=0.5)
+        self.logger = None
 
     def forward(self, x):
         x = self.conv1a(x)
         x = self.conv1b(x)
         x = self.pool1(x)
+
+        if self.logger is not None:
+            y = x[:, 0:8, 1, :, :].detach().reshape(-1,1,112,112)
+            self.logger.add_image('training/feature_1',
+                                  make_grid(y, normalize=True))
+            y = x[:, 64:72, 1, :, :].detach().reshape(-1,1,112,112)
+            self.logger.add_image('training/feature_2',
+                                  make_grid(y, normalize=True))
+
+            # self.logger.add_video('training/feature_1',y)
 
         x = self.conv2a(x)
         x = self.conv2b(x)
@@ -107,10 +124,9 @@ class W3D(nn.Module):
         #x = self.bn5(x)
         x = self.pool5(x)
 
-        x = x.squeeze()
         x = self.dropout(x)
-
-        logits = self.fc8(x)
+        logits = self.logits(x)
+        logits = logits.squeeze()
 
         return logits
 
