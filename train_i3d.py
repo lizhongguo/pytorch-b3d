@@ -31,7 +31,8 @@ import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
 
-from mi3d import MInceptionI3d
+#from mi3d import MInceptionI3d
+from tsn import TSN
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
@@ -41,7 +42,7 @@ parser.add_argument('--eval', action='store_true')
 parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--epochs', type=int, default=80)
-parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d'])
+parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d', 'tsn'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--sample_freq', type=int, default=1)
 parser.add_argument('--n_samples', type=int, default=6,
@@ -118,6 +119,12 @@ def model_builder():
         model = W3D(num_classes=7)
         # model.load_state_dict(torch.load('pev_i3d_best.pt'))
 
+    elif args.model == 'tsn':
+        if args.mode == 'rgb':
+            model = TSN(num_classes=7, in_channels=3)
+        else:
+            model = TSN(num_classes=7, in_channels=2)
+
     if args.sync_bn and args.apex:
         import apex
         print("using apex synced BN")
@@ -174,19 +181,31 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         scale_size = 224
     elif args.model in ('r2plus1d', 'w3d'):
         scale_size = 112
+    elif args.model in ('tsn', ):
+        scale_size = 299
     else:
         raise Exception('Model %s not implemented' % args.model)
+
+    if args.model in ('i3d', 'r2plus1d'):
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
+    elif args.model in ('tsn',):
+        mean = [0., 0., 0.]
+        std = [1., 1., 1.]
+    else:
+        raise Exception('Model %s not implemented' % args.model)
+        
 
     # setup dataset
     train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], scale_size),
                                 RandomHorizontalFlip(),
                                 ToTensor(255.0),
-                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+                                Normalize(mean, std)
                                 ])
 
     test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
                                ToTensor(255.0),
-                               Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+                               Normalize(mean, std)
                                ])
 
     clip_len = args.clip_len
@@ -208,6 +227,9 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
     else:
         sampler = None
+
+    if args.model == 'tsn':
+        dataset.random_select = True
 
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=2, pin_memory=True, sampler=sampler, drop_last=False)
@@ -237,8 +259,6 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     model, optimizer = model_builder()
 
-    if args.model == 'w3d':
-        model.logger = logger
 
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
@@ -297,6 +317,10 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     # setup the model
     model, _ = model_builder()
     model.train(False)
+
+    if args.visualize:
+        model.add_logger(logger, 'Conv3d_1a_7x7')
+
     top1 = AverageMeter()
     top2 = AverageMeter()
     label_names = ['0', '1', '2', '3', '4', '5', '6']
@@ -316,6 +340,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                 if i not in pred_result:
                     pred_result[i] = []
                 pred_result[i].append(o)
+
+        torch.save(pred_result,'%s_%s_%s_result.pt' % ('pev', args.model, args.mode))
 
         for i in pred_result:
             avg_pred = torch.stack(

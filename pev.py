@@ -8,7 +8,7 @@ import json
 import copy
 import numpy as np
 import pdb
-
+import random
 
 def pil_loader(path, mode):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
@@ -145,7 +145,7 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
                                       (n_samples_for_each_video - 1)))
             else:
                 step = sample_duration
-            for j in range(1, n_frames - sample_duration + 1, step):
+            for j in range(1, max(2, n_frames - sample_duration + 1), step):
                 sample_j = copy.deepcopy(sample)
                 sample_j['frame_indices'] = list(
                     range(j, min(n_frames + 1, j + sample_duration)))
@@ -240,6 +240,7 @@ class PEV(data.Dataset):
         self.temporal_transform = temporal_transform
         self.target_transform = target_transform
         self.loader = get_loader()
+        self.random_select = False
         '''
         self.target_matrix = [[0, 1, 0, 0, 1, 0, 0],
                                [1, 0, 0, 0, 0, 1, 1],
@@ -280,7 +281,11 @@ class PEV(data.Dataset):
         if self.temporal_transform is not None:
             frame_indices = self.temporal_transform(frame_indices)
         if self.sample_freq > 1:
-            frame_indices = [idx*self.sample_freq for idx in frame_indices]
+            if self.random_select:
+                frame_indices = [ random.randint(idx*self.sample_freq, min((idx+1)*self.sample_freq, 89)) for idx in frame_indices]
+            else:
+                frame_indices = [idx*self.sample_freq for idx in frame_indices]
+
 
         if self.mode == 'rgb':
             clip = self.loader(path, frame_indices, 'rgb')
@@ -390,7 +395,7 @@ class PEV(data.Dataset):
                                               (n_samples_for_each_video - 1)))
                     else:
                         step = sample_duration
-                    for j in range(1, n_frames - sample_duration + 1, step):
+                    for j in range(1, max(2, n_frames - sample_duration + 1), step):
                         sample_j = copy.deepcopy(sample)
                         sample_j['frame_indices'] = list(
                             range(j, min(n_frames + 1, j + sample_duration)))

@@ -441,7 +441,7 @@ class InceptionI3d(nn.Module):
                              use_bias=True,
                              name='logits')
         self.build()
-
+        self.logger = None
     def add_logger(self, logger, layer_name):
         """add_logger suppots for visualizing the model
         
@@ -456,15 +456,15 @@ class InceptionI3d(nn.Module):
     def visualize(self, feature_map):
         feature_map = feature_map.detach()
         feature_map = feature_map[0]
-        feature_map = feature_map.permute(1,0,2,3).reshape([-1,1]+list(feature_map.shape)[2:4])
-        logger.add_image('vis/%s' % self.vis_layer, torchvision.utils.make_grid(feature_map, normalize=True), self.count)
+        feature_map = feature_map.permute(0,1,2,3).reshape([-1,1]+list(feature_map.shape)[2:4])
+        self.logger.add_image('vis/%s' % self.vis_layer, torchvision.utils.make_grid(feature_map, nrow=16, normalize=True), self.count)
         self.count = self.count + 1
 
     def visualize_inputs(self, feature_map):
         feature_map = feature_map.detach()
         feature_map = feature_map[0]
         feature_map = feature_map.permute(1,0,2,3)
-        logger.add_image('vis/inputs', torchvision.utils.make_grid(feature_map, normalize=True), self.count)
+        self.logger.add_image('vis/inputs', torchvision.utils.make_grid(feature_map, nrow=16, normalize=True), self.count)
 
 
     def replace_logits(self, num_classes):
@@ -482,10 +482,16 @@ class InceptionI3d(nn.Module):
             self.add_module(k, self.end_points[k])
 
     def forward(self, x):
+
+        if self.logger is not None:
+            self.visualize_inputs(x)
+
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:
                 # use _modules to work with dataparallel
                 x = self._modules[end_point](x)
+                if self.logger is not None and end_point == self.vis_layer:
+                    self.visualize(x)
 
         x = self.logits(self.dropout(self.avg_pool(x)))
         if self._spatial_squeeze:
