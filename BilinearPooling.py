@@ -2,12 +2,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class LRBilinearPooling(nn.Module):
     def __init__(self, in_channels, mid_channels, out_channels):
         super(LRBilinearPooling, self).__init__()
 
-        self.U_p = nn.Parameter(torch.randn(out_channels, mid_channels, in_channels))
-        self.U_n = nn.Parameter(torch.randn(out_channels, mid_channels, in_channels))
+        self.U_p = nn.Parameter(torch.randn(
+            out_channels, mid_channels, in_channels))
+        self.U_n = nn.Parameter(torch.randn(
+            out_channels, mid_channels, in_channels))
         nn.init.xavier_uniform_(self.U_p)
         nn.init.xavier_uniform_(self.U_n)
 
@@ -21,12 +24,19 @@ class LRBilinearPooling(nn.Module):
         return self.F_square_norm(self.mul(self.U_p, x)) - \
             self.F_square_norm(self.mul(self.U_n, x))
 
+
 class BilinearPooling(nn.Module):
-    def __init__(self, in_channels, mid_channels, out_channels):
+    def __init__(self, in_channels, mid_channels):
         super(BiLinearPooling, self).__init__()
+        self.conv = nn.Conv3d(in_channels, mid_channels)
 
     def forward(self, x):
+        x = self.conv(x)
+        shape = list(x.shape)
+        x = x.reshape(shape[0], shape[1], -1)
+        x = torch.einsum('bxn,byn->bxy', x, x)
         return x
+
 
 class LRBilinearLoss(nn.Module):
     def __init__(self, n_classes=7, type='MM'):

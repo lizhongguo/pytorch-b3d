@@ -47,6 +47,7 @@ parser.add_argument('--model', type=str,
                     choices=['i3d', 'r2plus1d', 'w3d', 'tsn', 'bptsn'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--sample_freq', type=int, default=1)
+parser.add_argument('--sample_step', type=int, default=1)
 parser.add_argument('--n_samples', type=int, default=6,
                     help='num of samples for each video')
 parser.add_argument('--clip_len', type=int, default=32)
@@ -62,7 +63,7 @@ parser.add_argument('--apex', action='store_true')
 
 
 args = parser.parse_args()
-top_acc = 0
+top_acc = 0.
 
 if args.apex:
     from apex.parallel import DistributedDataParallel as DDP
@@ -145,7 +146,8 @@ def model_builder():
                 print("=> loading checkpoint '{}'".format(args.resume))
                 checkpoint = torch.load(
                     args.resume, map_location=lambda storage, loc: storage)
-                model.load_state_dict(checkpoint)
+                model.load_state_dict(checkpoint['state_dict'])
+                top_acc = checkpoint['top_acc']
                 print("=> loaded checkpoint '{}' "
                       .format(args.resume))
             else:
@@ -190,7 +192,8 @@ def model_builder():
 
 def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     if args.main_rank:
-        logger = SummaryWriter()
+        logger = SummaryWriter(comment='log_%s_%s' %
+                               (args.model, args.mode))
     else:
         logger = None
 
@@ -228,7 +231,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                                Normalize(mean, std)
                                ])
 
-    clip_len = args.clip_len
+    clip_len = args.clip_len // args.sample_step
     temporal_transforms = Compose([TemporalRandomCrop(clip_len),
                                    RepeatPadding(clip_len)])
     target_transforms = ClassLabel()
@@ -241,14 +244,15 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
                   spatial_transform=train_transforms,
                   temporal_transform=temporal_transforms,
                   target_transform=target_transforms,
-                  sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
+                  sample_duration=clip_len, sample_freq=args.sample_freq, 
+                  mode=args.mode, sample_step=args.sample_step)
 
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
     else:
         sampler = None
 
-    if args.model in 'tsn':
+    if args.model in ('tsn', 'bptsn'):
         dataset.random_select = True
 
     dataloader = torch.utils.data.DataLoader(
@@ -264,7 +268,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         spatial_transform=test_transforms,
         temporal_transform=val_temporal_transforms,
         target_transform=VideoID(),
-        sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
+        sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode, sample_step = args.sample_step)
 
     if args.distributed:
         val_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -294,7 +298,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
         # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
         dataset.undersample(dataset.root_path, dataset.raw_data, dataset.subset,
-                            dataset.min_class_len, dataset.n_samples_for_each_video, dataset.sample_duration, dataset.sample_freq)
+                            dataset.min_class_len, dataset.n_samples_for_each_video,
+                            dataset.sample_duration, dataset.sample_freq, dataset.sample_step)
 
         steps = steps + 1
 
@@ -333,7 +338,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                                ToTensor(255.0),
                                Normalize(mean, std)
                                ])
-    clip_len = args.clip_len
+    clip_len = args.clip_len // args.sample_step
 
     temporal_transforms = Compose(
         [TemporalBeginCrop(clip_len), RepeatPadding(clip_len)])
@@ -346,7 +351,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         spatial_transform=test_transforms,
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
-        sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
+        sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode, sample_step=args.sample_step)
     #val_dataset.random_select = True
 
     val_dataloader = torch.utils.data.DataLoader(
@@ -361,7 +366,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 
     top1 = AverageMeter()
     top2 = AverageMeter()
-    label_names = ['0', '1', '2', '3', '4', '5', '6']
+    label_names = ['Pit', 'Att', 'Pas', 'Rec', 'Pos', 'Neg', 'Ges']
     confusion_matrix = MatrixMeter(label_names)
 
     pred_result = dict()
@@ -442,7 +447,7 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
             logger.add_scalar('train/loss', loss.item(), count)
             logger.add_scalar('train/top1', top1, count)
 
-        #print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
+        # print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
         #      (count, loss.item(), top1, top2))
 
     # lr_sched.step()
@@ -493,19 +498,9 @@ def val(model, dataloader, criterion, epoch, logger=None):
 
         if top1.avg > top_acc and args.main_rank:
             top_acc = top1.avg
-            if hasattr(model, 'module'):
-                torch.save(model.module.state_dict(),
-                           '%s_%s_%s_best.pt' % ('pev', args.model, args.mode))
-            else:
-                torch.save(model.state_dict(),
-                           '%s_%s_%s_best.pt' % ('pev', args.model, args.mode))
+            save(model, 'best')
 
-        if hasattr(model, 'module'):
-            torch.save(model.module.state_dict(),
-                       '%s_%s_%s_last.pt' % ('pev', args.model, args.mode))
-        else:
-            torch.save(model.state_dict(),
-                       '%s_%s_%s_last.pt' % ('pev', args.model, args.mode))
+        save(model, 'last')
 
         if logger is not None:
             logger.add_scalar('val/top1', 100*top1.avg, epoch)
@@ -514,6 +509,15 @@ def val(model, dataloader, criterion, epoch, logger=None):
                               draw_confusion_matrix(confusion_matrix._data, label_names), epoch, close=False)
 
         print("Top1:%.2f Top2:%.2f" % (100*top1.avg, 100*top2.avg))
+
+
+def save(model, comment):
+    if hasattr(model, 'module'):
+        state_dict = model.module.state_dict()
+    else:
+        state_dict = model.state_dict()
+    torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
+               '%s_split_%d_%s_%s_%s.pt' % ('pev', 3, args.model, args.mode, comment))
 
 
 def accuracy(output, target, topk=(1,)):

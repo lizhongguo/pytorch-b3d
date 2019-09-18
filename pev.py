@@ -10,6 +10,7 @@ import numpy as np
 import pdb
 import random
 
+
 def pil_loader(path, mode):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
@@ -99,7 +100,7 @@ def get_video_names_and_annotations(data, subset):
 
 
 def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
-                 sample_duration, sample_freq=1):
+                 sample_duration, sample_freq=1, sample_step=1):
 
     # annotation[video_idx] = label
     split_list = open(annotation_path)
@@ -145,10 +146,11 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
                                       (n_samples_for_each_video - 1)))
             else:
                 step = sample_duration
+
             for j in range(1, max(2, n_frames - sample_duration + 1), step):
                 sample_j = copy.deepcopy(sample)
                 sample_j['frame_indices'] = list(
-                    range(j, min(n_frames + 1, j + sample_duration)))
+                    range(j, min(n_frames + 1, j + sample_duration), sample_step))
                 dataset.append(sample_j)
 
     return dataset, id2label
@@ -193,6 +195,9 @@ class PEV(data.Dataset):
     target_transform (callable, optional): A function/transform that takes in the
             target and transforms it.
         loader (callable, optional): A function to load an video given its path and frame indices.
+    sample_step : when samle_step is set above 1 sample_freq will be set as 1 , and sample_duration shall be divided
+        by sample_step
+
     Attributes:
         classes (list): List of the class names.
         class_to_idx (dict): Dict with items (class_name, class_index).
@@ -210,7 +215,8 @@ class PEV(data.Dataset):
                  sample_duration=16,
                  get_loader=get_default_video_loader,
                  sample_freq=1,
-                 mode='rgb'):
+                 mode='rgb',
+                 sample_step=1):
         # self.data = make_dataset(
         #    root_path, annotation_path, subset, n_samples_for_each_video,
         #    sample_duration)
@@ -227,20 +233,25 @@ class PEV(data.Dataset):
                 annotation_path, subset)
 
             self.undersample(self.root_path, self.raw_data, self.subset,
-                             self.min_class_len, self.n_samples_for_each_video, self.sample_duration, sample_freq)
+                             self.min_class_len, self.n_samples_for_each_video, self.sample_duration, sample_freq, sample_step)
 
             self.labels = self.raw_data.keys()
 
         else:
             self.data, self.id2label = make_dataset(
                 root_path, annotation_path, subset, n_samples_for_each_video,
-                sample_duration, sample_freq)
+                sample_duration, sample_freq, sample_step)
 
         self.spatial_transform = spatial_transform
         self.temporal_transform = temporal_transform
         self.target_transform = target_transform
         self.loader = get_loader()
         self.random_select = False
+        self.sample_step = sample_step
+
+        if self.sample_step > 1:
+            print('set sample_freq as 1 due to sample_step is set above 1')
+            self.sample_freq = 1
         '''
         self.target_matrix = [[0, 1, 0, 0, 1, 0, 0],
                                [1, 0, 0, 0, 0, 1, 1],
@@ -282,10 +293,10 @@ class PEV(data.Dataset):
             frame_indices = self.temporal_transform(frame_indices)
         if self.sample_freq > 1:
             if self.random_select:
-                frame_indices = [ random.randint(idx*self.sample_freq, min((idx+1)*self.sample_freq, 89)) for idx in frame_indices]
+                frame_indices = [random.randint(
+                    idx*self.sample_freq, min(idx*self.sample_freq+self.sample_freq*self.sample_step, 89)) for idx in frame_indices]
             else:
                 frame_indices = [idx*self.sample_freq for idx in frame_indices]
-
 
         if self.mode == 'rgb':
             clip = self.loader(path, frame_indices, 'rgb')
@@ -296,7 +307,6 @@ class PEV(data.Dataset):
             clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
 
         elif self.mode == 'flow':
-
             flow_x = self.loader(path, frame_indices, 'flow_x')
             flow_y = self.loader(path, frame_indices, 'flow_y')
 
@@ -356,7 +366,7 @@ class PEV(data.Dataset):
             self.data[data_idx]['label'][dim_index] = l.item()
 
     def undersample(self, root_path, raw_dataset, subset, min_class_len, n_samples_for_each_video,
-                    sample_duration, sample_freq=1):
+                    sample_duration, sample_freq=1, sample_step=1):
         dataset = []
 
         v_id = 0
@@ -398,7 +408,7 @@ class PEV(data.Dataset):
                     for j in range(1, max(2, n_frames - sample_duration + 1), step):
                         sample_j = copy.deepcopy(sample)
                         sample_j['frame_indices'] = list(
-                            range(j, min(n_frames + 1, j + sample_duration)))
+                            range(j, min(n_frames + 1, j + sample_duration), sample_step))
                         dataset.append(sample_j)
 
         self.data = dataset
