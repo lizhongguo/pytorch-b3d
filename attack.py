@@ -130,7 +130,7 @@ class L21(nn.Module):
 
     def forward(self, x):
         x = torch.einsum('ncthw,ncthw->nt',x,x)
-        x = torch.enisum('nt->n', torch.sqrt(x))
+        x = torch.einsum('nt->n', torch.sqrt(x))
         return x
 
 def attack(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model=''):
@@ -149,10 +149,10 @@ def attack(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='')
                                ToTensor(255.0),
                                Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
                                ])
-    clip_len = 32
+    clip_len = args.clip_len
 
     temporal_transforms = Compose(
-        [TemporalBeginCrop(clip_len), RepeatPadding(clip_len)])
+        [TemporalCenterCrop(clip_len), RepeatPadding(clip_len)])
     target_transforms = ClassLabel()
     val_dataset = PEV(
         data_root,
@@ -173,56 +173,56 @@ def attack(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='')
 
 
     criterion = nn.CrossEntropyLoss().cuda()
+    l21 = L21()
 
     step = 0
     #for data in tqdm(val_dataloader):
-    data = val_dataset.__getitem__(0)
+    data = val_dataset.__getitem__(13)
     inputs, labels, _ = data
-    inputs.view([-1] + inputs.size())
+    labels = torch.from_numpy(labels).view([-1])
+    inputs = inputs.view([1,] + list(inputs.size()))
     inputs = inputs.cuda()
     labels = labels.cuda(non_blocking=True)
 
-    pertubation = torch.rand_like(inputs)
-    pertubation.requires_grad = True
+    pertubation = 1e-4*torch.ones_like(inputs)
+
+    pertubation.requires_grad=True
+    optimizer = optim.SGD([pertubation], lr=args.lr)
 
     mask = torch.zeros_like(inputs)
+    mask[:,:,:,:,:] = 1e-4
     mask[:,:,:,:16,:16] = 1.
-    n_iter = 50
 
-    for _ in range(n_iter):
+    n_iter = 300
+    
+    for step in range(n_iter):
+
+        optimizer.zero_grad()
+
         pertubation_masked = pertubation.mul(mask)
-        output = model(inputs + pertubation_masked)
-        loss = -criterion(output, labels) + L21(pertubation_masked)
 
-        if args.apex:
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
-        else:
-            loss.backward()
+        inputs_perb = torch.clamp(inputs + pertubation_masked,-1., 1.)
+        output = model(inputs_perb)
 
-        '''
-        gradients = inputs.grad.detach().permute(0,2,1,3,4).reshape(-1,3,224,224).abs()
-        src = inputs.detach().permute(0,2,1,3,4).reshape(-1,3,224,224)
-        gradients = gradients[:,[0,1,2],:,:]
-        src = src[:,[0,1,2],:,:]
+        cls_loss = criterion(output, labels)
+        l21_loss = l21(pertubation_masked)
+        loss = - cls_loss + l21_loss
 
-        min_ = gradients.min()
-        max_ = gradients.max()
-        gradients.add_(-min_).div_(max_ - min_ + 1e-5)
-        gradients.add_(src)
-        gradients.clamp_(0., 1.)
+        pertubation_vis = pertubation_masked.detach().permute(0,2,1,3,4).reshape(-1, 1, 224, 224)
+        logger.add_image('attack/perb', torchvision.utils.make_grid(pertubation_vis), step)
+        logger.add_scalar('attack/loss', loss.item(), step)
+        logger.add_scalar('attack/cls_loss', cls_loss.item(), step)
 
-        #print(gradients.max())
-        logger.add_image('grad', torchvision.utils.make_grid(gradients), step)
-        logger.add_image('src', torchvision.utils.make_grid(src), step)
+        print('Iteration %d Loss %f' % (step, loss.item()))
+        print('Iteration %d ClsLoss %f' % (step, cls_loss.item()))
+        print('Iteration %d L21Loss %f' % (step, l21_loss.item()))
 
-        #logger.add_image('inputs', torchvision.utils.make_grid(src), step)
-        logger.add_text('output',str(output.argmax(dim=1)),step)
-        logger.add_text('labels',str(labels),step)
-        step = step + 1
-        '''
-        pertubation = pertubation - init_lr * pertubation.grad
-        pertubation.grad = None
+        loss.backward()
+
+        #print(pertubation.grad)
+        optimizer.step()
+
+        #print(pertubation)
 
     logger.close()
 

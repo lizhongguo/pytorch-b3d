@@ -4,9 +4,9 @@ import torch.nn as nn
 
 class TSN(nn.Module):
 
-    def __init__(self, num_classes, in_channels=3):
+    def __init__(self, num_classes, in_channels=3, **kwargs):
         super(TSN, self).__init__()
-        self.backbone = inceptionv3.inception_v3(pretrained=True, aux_logits=False)
+        self.backbone = inceptionv3.inception_v3(pretrained=True, aux_logits=False, **kwargs)
         self.fc = nn.Linear(2048, num_classes)
 
         if in_channels == 2:

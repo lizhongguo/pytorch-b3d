@@ -1,3 +1,5 @@
+from BPTSN import BPTSN
+from tsn import TSN
 import pdb
 from tqdm import tqdm
 from confusion_matrix_figure import draw_confusion_matrix
@@ -32,7 +34,6 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
 
 #from mi3d import MInceptionI3d
-from tsn import TSN
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
@@ -42,7 +43,8 @@ parser.add_argument('--eval', action='store_true')
 parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--epochs', type=int, default=80)
-parser.add_argument('--model', type=str, choices=['i3d', 'r2plus1d', 'w3d', 'tsn'])
+parser.add_argument('--model', type=str,
+                    choices=['i3d', 'r2plus1d', 'w3d', 'tsn', 'bptsn'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--sample_freq', type=int, default=1)
 parser.add_argument('--n_samples', type=int, default=6,
@@ -109,7 +111,7 @@ def model_builder():
                                    if k.find('logits') < 0}, strict=False)
         elif args.mode == 'rgb+flow':
             model = MInceptionI3d(num_classes=7,
-                                 in_channels=5, dropout_keep_prob=0.5)
+                                  in_channels=5, dropout_keep_prob=0.5)
             model.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                                    if k.find('logits') < 0}, strict=False)
 
@@ -119,11 +121,17 @@ def model_builder():
         model = W3D(num_classes=7)
         # model.load_state_dict(torch.load('pev_i3d_best.pt'))
 
-    elif args.model == 'tsn':
+    elif args.model in ('tsn', ):
         if args.mode == 'rgb':
             model = TSN(num_classes=7, in_channels=3)
         else:
-            model = TSN(num_classes=7, in_channels=2)
+            model = TSN(num_classes=7, in_channels=2, transform_input=False)
+
+    elif args.model in ('bptsn', ):
+        if args.mode == 'rgb':
+            model = BPTSN(num_classes=7, in_channels=3)
+        else:
+            model = BPTSN(num_classes=7, in_channels=2, transform_input=False)
 
     if args.sync_bn and args.apex:
         import apex
@@ -151,8 +159,17 @@ def model_builder():
     else:
         lr = args.lr * args.batch_size / 56.
 
-    optimizer = optim.SGD(model.parameters(), lr=lr,
-                          momentum=0.9, weight_decay=0.0000001)
+    if args.model in ('bptsn', ):
+        lrbp_params = model.lrbp.parameters()
+        base_params = model.backbone.parameters()
+        optimizer = optim.SGD([
+            {'params': base_params, 'lr': lr},
+            {'params': lrbp_params, 'lr': 10*lr}
+        ], lr=lr,
+            momentum=0.9, weight_decay=0.0000001)
+    else:
+        optimizer = optim.SGD(model.parameters(), lr=lr,
+                              momentum=0.9, weight_decay=0.0000001)
     #lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
     if args.apex:
         model, optimizer = amp.initialize(model, optimizer,
@@ -181,7 +198,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         scale_size = 224
     elif args.model in ('r2plus1d', 'w3d'):
         scale_size = 112
-    elif args.model in ('tsn', ):
+    elif args.model in ('tsn', 'bptsn'):
         scale_size = 299
     else:
         raise Exception('Model %s not implemented' % args.model)
@@ -189,12 +206,15 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     if args.model in ('i3d', 'r2plus1d'):
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
-    elif args.model in ('tsn',):
-        mean = [0., 0., 0.]
-        std = [1., 1., 1.]
+    elif args.model in ('tsn', 'bptsn'):
+        if args.mode == 'rgb':
+            mean = [0., 0., 0.]
+            std = [1., 1., 1.]
+        else:
+            mean = [0.5, 0.5, 0.5]
+            std = [0.5, 0.5, 0.5]
     else:
         raise Exception('Model %s not implemented' % args.model)
-        
 
     # setup dataset
     train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.9, 0.81], scale_size),
@@ -228,7 +248,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     else:
         sampler = None
 
-    if args.model == 'tsn':
+    if args.model in 'tsn':
         dataset.random_select = True
 
     dataloader = torch.utils.data.DataLoader(
@@ -259,10 +279,12 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     model, optimizer = model_builder()
 
-
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
-    criterion = nn.CrossEntropyLoss().cuda()
+    if args.model == 'bptsn':
+        criterion = nn.MultiMarginLoss().cuda()
+    else:
+        criterion = nn.CrossEntropyLoss().cuda()
     count = 0
 
     while steps < max_steps:
@@ -284,17 +306,32 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 
     logger = SummaryWriter()
 
-    # setup dataset
     if args.model in ('i3d', ):
         scale_size = 224
     elif args.model in ('r2plus1d', 'w3d'):
         scale_size = 112
+    elif args.model in ('tsn', 'bptsn'):
+        scale_size = 299
+    else:
+        raise Exception('Model %s not implemented' % args.model)
+
+    if args.model in ('i3d', 'r2plus1d'):
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
+    elif args.model in ('tsn', 'bptsn'):
+        if args.mode == 'rgb':
+            mean = [0., 0., 0.]
+            std = [1., 1., 1.]
+        else:
+            mean = [0.5, 0.5, 0.5]
+            std = [0.5, 0.5, 0.5]
+
     else:
         raise Exception('Model %s not implemented' % args.model)
 
     test_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
                                ToTensor(255.0),
-                               Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+                               Normalize(mean, std)
                                ])
     clip_len = args.clip_len
 
@@ -310,6 +347,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         temporal_transform=temporal_transforms,
         target_transform=target_transforms,
         sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode)
+    #val_dataset.random_select = True
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=False)
@@ -341,7 +379,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                     pred_result[i] = []
                 pred_result[i].append(o)
 
-        torch.save(pred_result,'%s_%s_%s_result.pt' % ('pev', args.model, args.mode))
+        torch.save(pred_result, '%s_%s_%s_result.pt' %
+                   ('pev', args.model, args.mode))
 
         for i in pred_result:
             avg_pred = torch.stack(
@@ -403,7 +442,7 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
             logger.add_scalar('train/loss', loss.item(), count)
             logger.add_scalar('train/top1', top1, count)
 
-        # print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
+        #print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
         #      (count, loss.item(), top1, top2))
 
     # lr_sched.step()
