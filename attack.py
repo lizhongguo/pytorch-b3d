@@ -1,11 +1,7 @@
 import pdb
 from tqdm import tqdm
 from confusion_matrix_figure import draw_confusion_matrix
-from multi_label_loss import MLL
-from multi_label_loss import MLLSampler
 from collections.abc import Iterable
-from R2Plus1D import R2Plus1DClassifier
-from W3D import W3D
 from torch.utils.tensorboard import SummaryWriter
 from spatial_transform import (
     Compose, Normalize, Scale, CenterCrop, CornerCrop, MultiScaleCornerCrop,
@@ -13,7 +9,6 @@ from spatial_transform import (
 from target_transform import ClassLabel, VideoID
 from temporal_transform import TemporalRandomCrop, TemporalCenterCrop, TemporalBeginCrop, LoopPadding, RepeatPadding
 from pev import PEV
-from charades_dataset import Charades as Dataset
 from pytorch_i3d import InceptionI3d
 import numpy as np
 import videotransforms
@@ -135,7 +130,7 @@ class L21(nn.Module):
 
 def attack(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model=''):
 
-    logger = SummaryWriter()
+    logger = SummaryWriter(comment='_%s_%s' % (attack ,mode))
 
     # setup dataset
     if args.model in ('i3d', ):

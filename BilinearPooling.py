@@ -11,8 +11,8 @@ class LRBilinearPooling(nn.Module):
             out_channels, mid_channels, in_channels))
         self.U_n = nn.Parameter(torch.randn(
             out_channels, mid_channels, in_channels))
-        nn.init.xavier_uniform_(self.U_p)
-        nn.init.xavier_uniform_(self.U_n)
+        nn.init.xavier_normal_(self.U_p)
+        nn.init.xavier_normal_(self.U_n)
 
     def F_square_norm(self, x):
         return torch.einsum('bomn,bomn->bo', x, x)
@@ -21,21 +21,45 @@ class LRBilinearPooling(nn.Module):
         return torch.einsum('omi,bin->bomn', x, y)
 
     def forward(self, x):
+        shape = list(x.shape)
+        x = x.reshape(shape[0], shape[1], -1)
         return self.F_square_norm(self.mul(self.U_p, x)) - \
             self.F_square_norm(self.mul(self.U_n, x))
 
 
 class BilinearPooling(nn.Module):
-    def __init__(self, in_channels, mid_channels):
-        super(BiLinearPooling, self).__init__()
-        self.conv = nn.Conv3d(in_channels, mid_channels)
-
+    def __init__(self):
+        super(BilinearPooling, self).__init__()
     def forward(self, x):
-        x = self.conv(x)
         shape = list(x.shape)
         x = x.reshape(shape[0], shape[1], -1)
         x = torch.einsum('bxn,byn->bxy', x, x)
+        x = x.reshape(shape[0], -1)
+        x = torch.sign(x) * torch.sqrt(x.abs())
         return x
+
+class SRBilinearPooling(nn.Module):
+    def __init__(self, spatial_dims):
+        """SRBilinearPooling Spatial Relative Bilinear Pooling
+        Args:
+            in_channels (int): 
+            mid_channels (int): 
+            spatial_dims (int): dims of space
+        """
+        super(SRBilinearPooling, self).__init__()
+        self.sr = nn.Parameter(torch.randn(
+            spatial_dims, spatial_dims))
+        nn.init.xavier_uniform_(self.sr)
+
+
+    def forward(self, x):
+        shape = list(x.shape)
+        x = x.reshape(shape[0], shape[1], -1)
+        y = torch.einsum('bxn, nm->bxm', x, self.sr)
+        out = torch.einsum('bxm, bym->bxy', y, x)
+        out = out.reshape(shape[0],-1)
+        return out
+
 
 
 class LRBilinearLoss(nn.Module):

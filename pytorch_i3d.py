@@ -272,7 +272,7 @@ class InceptionI3d(nn.Module):
     )
     '''
     def __init__(self, num_classes=400, spatial_squeeze=True,
-                 final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5):
+                 final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5, extract_feature=False):
         """Initializes I3D model instance.
         Args:
           num_classes: The number of outputs in the logit layer (default 400, which
@@ -338,6 +338,7 @@ class InceptionI3d(nn.Module):
         self.end_points[end_point] = Unit3D(in_channels=128, output_channels=64, kernel_shape=[1, 1, 1],
                                             stride=(1, 1, 1), padding=(0, 0, 0),  name=name+end_point)        
         '''
+        self.extract_feature = extract_feature
         end_point = 'MaxPool3d_2a_3x3'
         self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
                                                           padding=0)
@@ -493,6 +494,8 @@ class InceptionI3d(nn.Module):
                 if self.logger is not None and end_point == self.vis_layer:
                     self.visualize(x)
 
+        if self.extract_feature:
+            return self.avg_pool(x).squeeze()
         x = self.logits(self.dropout(self.avg_pool(x)))
         if self._spatial_squeeze:
             logits = x.squeeze(3).squeeze(3)

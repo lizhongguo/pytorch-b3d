@@ -9,7 +9,7 @@ import os
 import sys
 from collections import OrderedDict
 from DWT import DWT3D
-from BilinearPooling import LRBilinearPooling
+from BilinearPooling import LRBilinearPooling, BilinearPooling, SRBilinearPooling
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
 
@@ -257,7 +257,6 @@ class InceptionI3d(nn.Module):
         Raises:
           ValueError: if `final_endpoint` is not recognized.
         """
-
         if final_endpoint not in self.VALID_ENDPOINTS:
             raise ValueError('Unknown final endpoint %s' % final_endpoint)
 
@@ -368,11 +367,12 @@ class InceptionI3d(nn.Module):
         if self._final_endpoint == end_point:
             return
 
-        end_point = 'LRBP'
-        self.end_points[end_point] = LRBilinearPooling(128+192+96+64,128,num_classes)
+        #end_point = 'LRBP'
+        #self.end_points[end_point] = LRBilinearPooling(128+192+96+64,128,num_classes)
 
         self.build()
         self.logger = None
+
     def add_logger(self, logger, layer_name):
         """add_logger suppots for visualizing the model
         
@@ -397,17 +397,6 @@ class InceptionI3d(nn.Module):
         feature_map = feature_map.permute(1,0,2,3)
         self.logger.add_image('vis/inputs', torchvision.utils.make_grid(feature_map, nrow=16, normalize=True), self.count)
 
-
-    def replace_logits(self, num_classes):
-        self._num_classes = num_classes
-        self.logits = Unit3D(in_channels=384+384+128+128, output_channels=self._num_classes,
-                             kernel_shape=[1, 1, 1],
-                             padding=0,
-                             activation_fn=None,
-                             use_batch_norm=False,
-                             use_bias=True,
-                             name='logits')
-
     def build(self):
         for k in self.end_points.keys():
             self.add_module(k, self.end_points[k])
@@ -423,8 +412,32 @@ class InceptionI3d(nn.Module):
                 x = self._modules[end_point](x)
                 if self.logger is not None and end_point == self.vis_layer:
                     self.visualize(x)
-
-                if end_point == self._final_endpoint:
-                    return x
         return x
 
+
+class BPI3D(nn.Module):
+    def __init__(self, num_classes, in_channels=3, **kwargs):
+        super(BPI3D, self).__init__()
+        self.backbone = InceptionI3d(num_classes, in_channels=in_channels, **kwargs)
+        #self.lrbp = LRBilinearPooling(256+320+128+128, 512, num_classes)
+        self.conv = nn.Conv3d(256+320+128+128, 64, kernel_size=1)
+        self.bp = SRBilinearPooling(8*14*14)
+        self.fc = nn.Linear(64*64, num_classes)
+        self.bn_1 = nn.BatchNorm3d(64)
+        self.bn_2 = nn.BatchNorm1d(64*64)
+
+    def forward(self, x):
+        """forward 
+
+        Args:
+            x (Tensor): Shape N C T H W
+        """
+        x = self.backbone(x)
+        x = self.conv(x)
+
+        x = self.bn_1(x)
+        x = self.bp(x)
+        x = self.bn_2(x)
+        x = F.dropout(x, p=0.8)
+        x = self.fc(x)
+        return x
