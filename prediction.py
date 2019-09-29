@@ -57,6 +57,15 @@ class MatrixMeter(object):
             data[l] = self._matrix[l]/self._matrix[l].sum()
         return data
 
+    @property
+    def acc(self):
+        data = torch.zeros(
+            len(self.labels), dtype=torch.float)
+
+        for l in range(len(self.labels)):
+            data[l] = self._matrix[l][l]/self._matrix[l].sum()
+        return data.mean().item()
+
     def __str__(self):
         _str_format = "%.2f\t"*len(self.labels)+'\n'
         _str = ' \t' + '\t'.join(l for l in self.labels) + '\n'
@@ -66,10 +75,11 @@ class MatrixMeter(object):
                       for i in self._matrix[l])
         return _str
 
+split_idx = 1
 model = 'i3d'
 dataset = 'pev'
-split_list = open('/home/lizhongguo/dataset/pev_split/val_split_3.txt')
-
+split_list = open('/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx)
+view = 's'
 id2label = dict()
 
 for i, s in enumerate(split_list):
@@ -78,21 +88,26 @@ for i, s in enumerate(split_list):
     id2label[i] = label
 
 
-rgb = torch.load('%s_%s_%s_result.pt' % (dataset, model, 'rgb'))
-flow = torch.load('%s_%s_%s_result.pt' % (dataset, model, 'flow'))
+rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, 'rgb', 's'))
+flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, 'rgb', 'f'))
 
 top1 = AverageMeter()
 top2 = AverageMeter()
 label_names = ['0', '1', '2', '3', '4', '5', '6']
 confusion_matrix = MatrixMeter(label_names)
 
-pred_result = rgb
-pred_result.update(flow)
+rgb = { k.item():v for k,v in rgb.items() }
+flow = { k.item():v for k,v in flow.items() }
+
+pred_result = dict()
+for k,v in rgb.items():
+    pred_result[k] = v
+    pred_result[k].extend(flow[k])
 
 for i in pred_result:
     avg_pred = torch.stack(
         tuple(o for o in pred_result[i]), dim=0).mean(dim=0)
-    target = id2label[i.item()]
+    target = id2label[i]
     _, prediction = avg_pred.topk(2)
     prediction = prediction.tolist()
     if target == prediction[0]:
@@ -107,7 +122,7 @@ for i in pred_result:
 
     confusion_matrix.update(prediction[0], target)
 
-print("Top1:%.2f Top2:%.2f" % (top1.avg*100, top2.avg*100))
+print("Top1:%.2f Top2:%.2f" % (confusion_matrix.acc*100, top2.avg*100))
 print(confusion_matrix)
 
 

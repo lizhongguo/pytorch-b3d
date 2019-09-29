@@ -26,11 +26,11 @@ class TSN(nn.Module):
         x = self.backbone(x)
         # x Shape N*T 2048
         x = self.fc(x)
-        x = self.softmax(x)
+        #x = self.softmax(x)
         x = x.reshape(shape[:2]+[self.num_classes])
         x = x.mean(dim = 1, keepdim=True)
-        if self.training:
-            x = torch.log(x)
+        #if self.training:
+        #    x = torch.log(x)
         #x = x.max(dim = 1, keepdim=True)
         x = x.squeeze(dim = 1)
         return x

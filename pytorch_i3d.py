@@ -495,7 +495,7 @@ class InceptionI3d(nn.Module):
                     self.visualize(x)
 
         if self.extract_feature:
-            return self.avg_pool(x).squeeze()
+            return self.avg_pool(x).squeeze(2).squeeze(2).squeeze(2)
         x = self.logits(self.dropout(self.avg_pool(x)))
         if self._spatial_squeeze:
             logits = x.squeeze(3).squeeze(3)

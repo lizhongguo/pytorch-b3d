@@ -349,7 +349,7 @@ class PEV(data.Dataset):
             target = self.target_transform(target)
 
         if self.view == 'f' or self.view == 's':
-            clip = self.get_view(index, self.view, mode)
+            clip = self.get_view(index, self.view, self.mode)
             return clip, target, index
         else:
             clip_f = self.get_view(index, 'f', self.mode)            

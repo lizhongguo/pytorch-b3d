@@ -9,7 +9,7 @@ import os
 import sys
 from collections import OrderedDict
 from DWT import DWT3D
-from BilinearPooling import LRBilinearPooling, BilinearPooling, SRBilinearPooling
+from compact_bilinear_pooling import CountSketch, CompactBilinearPooling
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
 
@@ -236,11 +236,13 @@ class InceptionI3d(nn.Module):
         'Mixed_4d',
         'Mixed_4e',
         'Mixed_4f',
-        'LRBP'
-    )
+        'MaxPool3d_5a_2x2',
+        'Mixed_5b',
+        'Mixed_5c'
+        )
 
     def __init__(self, num_classes=400, spatial_squeeze=True,
-                 final_endpoint='LRBP', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5):
+                 final_endpoint='Mixed_5c', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5):
         """Initializes I3D model instance.
         Args:
           num_classes: The number of outputs in the logit layer (default 400, which
@@ -364,11 +366,8 @@ class InceptionI3d(nn.Module):
         end_point = 'Mixed_5c'
         self.end_points[end_point] = InceptionModule(
             256+320+128+128, [384, 192, 384, 48, 128, 128], name+end_point)
-        if self._final_endpoint == end_point:
-            return
-
-        #end_point = 'LRBP'
-        #self.end_points[end_point] = LRBilinearPooling(128+192+96+64,128,num_classes)
+        #if self._final_endpoint == end_point:
+        #    return
 
         self.build()
         self.logger = None
@@ -419,25 +418,22 @@ class BPI3D(nn.Module):
     def __init__(self, num_classes, in_channels=3, **kwargs):
         super(BPI3D, self).__init__()
         self.backbone = InceptionI3d(num_classes, in_channels=in_channels, **kwargs)
-        #self.lrbp = LRBilinearPooling(256+320+128+128, 512, num_classes)
-        self.conv = nn.Conv3d(256+320+128+128, 64, kernel_size=1)
-        self.bp = SRBilinearPooling(8*14*14)
-        self.fc = nn.Linear(64*64, num_classes)
-        self.bn_1 = nn.BatchNorm3d(64)
-        self.bn_2 = nn.BatchNorm1d(64*64)
-
+        self.mid_channels = 1024
+        self.cbp = CompactBilinearPooling(1024, 1024, self.mid_channels)
+        self.fc = nn.Linear(self.mid_channels, num_classes)
     def forward(self, x):
         """forward 
 
         Args:
             x (Tensor): Shape N C T H W
         """
-        x = self.backbone(x)
-        x = self.conv(x)
-
-        x = self.bn_1(x)
-        x = self.bp(x)
-        x = self.bn_2(x)
-        x = F.dropout(x, p=0.8)
+        x = self.backbone(x) # N 1024 4 7 7
+        size = list(x.shape)
+        #x = x.reshape(size[0].size[1],-1)
+        x = x.permute(0,2,3,4,1)
+        x = x.reshape(-1, size[1])
+        x = self.cbp(x, x)
+        x = x.reshape(size[0], -1, self.mid_channels)
+        x = x.mean(dim=1)
         x = self.fc(x)
         return x

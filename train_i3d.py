@@ -163,26 +163,23 @@ def model_builder():
             model = BPC3D(num_classes=7, in_channels=2)
 
     elif args.model == 'di3d':
-        if args.mode == 'rgb':
-            model = DI3D(num_classes=7, in_channels=3)
-            model.backbone_f.load_state_dict(torch.load(
-                '%s_split_%d_%s_%s_%s_%s.pt' % (
-                    'pev', split_idx, 'i3d', args.mode, 'best', 'f'),
-                map_location=lambda storage, loc: storage)['state_dict'])
+        model = DI3D(num_classes=7)
 
-            model.backbone_s.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
-                                              if k.find('logits') < 0}, strict=False)
+        model.backbone_flow.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                            if k.find('logits') < 0}, strict=False)
+        ''''
+        model.backbone_flow.load_state_dict(torch.load(
+            '%s_split_%d_%s_%s_%s_%s.pt' % (
+                'pev', split_idx, 'i3d', 'flow', 'best', args.view),
+            map_location=lambda storage, loc: storage)['state_dict'])
+        model.backbone_rgb.load_state_dict(torch.load(
+            '%s_split_%d_%s_%s_%s_%s.pt' % (
+                'pev', split_idx, 'i3d', 'rgb', 'best', args.view),
+            map_location=lambda storage, loc: storage)['state_dict'])
 
-        else:
-            model = DI3D(num_classes=7, in_channels=2)
-            model.backbone_f.load_state_dict(torch.load(
-                '%s_split_%d_%s_%s_%s_%s.pt' % (
-                    'pev', split_idx, 'i3d', args.mode, 'best', 'f'),
-                map_location=lambda storage, loc: storage)['state_dict'])
-
-            model.backbone_s.load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
-                                              if k.find('logits') < 0}, strict=False)
-
+        '''
+        model.backbone_rgb.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                            if k.find('logits') < 0}, strict=False)
         '''
         model.backbone_s.load_state_dict(torch.load(
             '%s_split_%d_%s_%s_%s_%s.pt' % (
@@ -228,7 +225,8 @@ def model_builder():
     elif args.model == 'di3d':
         optimizer = optim.SGD([
             {'params': model.fc.parameters(), 'lr': lr},
-            {'params': model.backbone_s.parameters(), 'lr': lr},
+            {'params': model.backbone_flow.parameters(), 'lr': lr},
+            {'params': model.backbone_rgb.parameters(), 'lr': lr},
             #{'params': model.weight, 'lr': lr}
         ], lr=lr,
             momentum=0.9, weight_decay=0.0000001)
@@ -351,8 +349,6 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     # criterion = MLL(dataset.multi_label_shape)    # train it
     if args.model == 'bptsn':
         criterion = nn.MultiMarginLoss().cuda()
-    elif args.model == 'tsn':
-        criterion = nn.NLLLoss().cuda()
     else:
         criterion = nn.CrossEntropyLoss().cuda()
     count = 0
@@ -442,7 +438,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                 input_f, input_s, labels, _ = data
                 input_f, input_s = input_f.cuda(), input_s.cuda()
                 labels = labels.cuda(non_blocking=True)
-                output = model(None, input_s)
+                output = model(input_f, input_s)
 
             else:
                 inputs, labels, _ = data
@@ -457,8 +453,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                     pred_result[i] = []
                 pred_result[i].append(o)
 
-        torch.save(pred_result, '%s_%s_%s_result.pt' %
-                   ('pev', args.model, args.mode))
+        torch.save(pred_result, '%s_split_%d_%s_%s_%s_result.pt' %
+                   ('pev', args.split_idx, args.model, args.mode, args.view))
 
         for i in pred_result:
             avg_pred = torch.stack(
@@ -483,7 +479,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     logger.add_figure('val/confusion',
                       draw_confusion_matrix(confusion_matrix._data, label_names), 0, close=False)
 
-    print("Top1:%.2f Top2:%.2f" % (top1.avg*100, top2.avg*100))
+    print("Top1:%.2f Top2:%.2f" % (confusion_matrix.acc*100, top2.avg*100))
     print(confusion_matrix)
 
     logger.close()
@@ -497,12 +493,8 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
             input_f, input_s, labels, _ = data
             input_f, input_s = input_f.cuda(), input_s.cuda()
             labels = labels.cuda(non_blocking=True)
-            output, loss_mse = model(input_f, input_s, labels)
-            loss = criterion(output, labels) + loss_mse
-
-            if args.print_loss:
-                print("Iteration %d MSE Loss %.4f" %
-                      (count, loss_mse.item()))
+            output = model(input_f, input_s)
+            loss = criterion(output, labels)
 
         else:
             inputs, labels, _ = data
@@ -528,8 +520,6 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
         if logger is not None:
             logger.add_scalar('train/loss', loss.item(), count)
             logger.add_scalar('train/top1', top1, count)
-            if args.model == 'di3d':
-                logger.add_scalar('train/loss_mse', loss_mse.item(), count)
 
         if args.print_loss:
             print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
@@ -556,7 +546,7 @@ def val(model, dataloader, criterion, epoch, logger=None):
                 input_f, input_s, labels, _ = data
                 input_f, input_s = input_f.cuda(), input_s.cuda()
                 labels = labels.cuda(non_blocking=True)
-                output = model(None, input_s)
+                output = model(input_f, input_s)
 
             else:
                 inputs, labels, _ = data
@@ -601,7 +591,7 @@ def val(model, dataloader, criterion, epoch, logger=None):
             logger.add_figure('val/confusion',
                               draw_confusion_matrix(confusion_matrix._data, label_names), epoch, close=False)
 
-        print("Top1:%.2f Top2:%.2f" % (100*top1.avg, 100*top2.avg))
+        print("Top1:%.2f Top2:%.2f" % (100*confusion_matrix.acc, 100*top2.avg))
 
 
 def save(model, comment):
