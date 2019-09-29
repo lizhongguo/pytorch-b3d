@@ -264,7 +264,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     elif args.model == 'r2plus1d' or args.model == 'w3d' or args.model == 'bpc3d':
         scale_size = 112
     elif args.model == 'tsn' or args.model == 'bptsn':
-        scale_size = 299
+        scale_size = 224 #299
     else:
         raise Exception('Model %s not implemented' % args.model)
 
@@ -316,6 +316,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     if args.model == 'tsn' or args.model == 'bptsn':
         dataset.random_select = True
+        dataset.dense_select_length = 5 if args.mode == 'flow' else 1
 
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=2, pin_memory=True, sampler=sampler, drop_last=False)
@@ -337,6 +338,11 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
             val_dataset)
     else:
         val_sampler = None
+
+    if args.model == 'tsn' or args.model == 'bptsn':
+        val_dataset.random_select = True
+        val_dataset.dense_select_length = 5 if args.mode == 'flow' else 1
+
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=2, pin_memory=True, sampler=val_sampler, drop_last=False)
@@ -378,7 +384,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     elif args.model == 'r2plus1d' or args.model == 'w3d' or args.model == 'bpc3d':
         scale_size = 112
     elif args.model == 'tsn' or args.model == 'bptsn':
-        scale_size = 299
+        scale_size = 224 #299
     else:
         raise Exception('Model %s not implemented' % args.model)
 

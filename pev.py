@@ -257,6 +257,10 @@ class PEV(data.Dataset):
             self.sample_freq = 1
 
         self.view = view
+
+        #sample continious frames
+        self.dense_select_length = 1
+
         '''
         self.target_matrix = [[0, 1, 0, 0, 1, 0, 0],
                                [1, 0, 0, 0, 0, 1, 1],
@@ -377,6 +381,8 @@ class PEV(data.Dataset):
                     idx*self.sample_freq, min(idx*self.sample_freq+self.sample_freq*self.sample_step, 89)) for idx in frame_indices]
             else:
                 frame_indices = [idx*self.sample_freq for idx in frame_indices]
+        
+        frame_indices = [min(idx+i, 89) for idx in frame_indices for i in range(self.dense_select_length)]
 
         if mode == 'rgb':
             clip = self.loader(path, frame_indices, 'rgb', view)
@@ -385,6 +391,9 @@ class PEV(data.Dataset):
                 clip = [self.spatial_transform(img) for img in clip]
 
             clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
+            
+            shape = list(clip.shape)
+            clip = clip.reshape(shape[0],shape[1]*self.dense_select_length,-1,shape[3],shape[4])
 
         elif mode == 'flow':
             flow_x = self.loader(path, frame_indices, 'flow_x', view)
@@ -399,6 +408,10 @@ class PEV(data.Dataset):
             flow_y = torch.stack(flow_y, 0)
             clip = torch.cat((flow_x, flow_y), dim=1)
             clip = clip.permute(1, 0, 2, 3)
+
+            shape = list(clip.shape)
+            clip = clip.reshape(shape[0],shape[1]*self.dense_select_length,-1,shape[3],shape[4])
+
 
         elif mode == 'rgb+flow':
             rgb = self.loader(path, frame_indices, 'rgb', view)
@@ -416,6 +429,9 @@ class PEV(data.Dataset):
             rgb = torch.stack(rgb, 0)
             clip = torch.cat((rgb, flow_x, flow_y), dim=1)
             clip = clip.permute(1, 0, 2, 3)
+            
+            shape = list(clip.shape)
+            clip = clip.reshape(shape[0],shape[1]*self.dense_select_length,-1,shape[3],shape[4])
 
         return clip
 
