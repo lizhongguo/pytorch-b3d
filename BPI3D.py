@@ -11,6 +11,7 @@ from collections import OrderedDict
 from DWT import DWT3D
 from compact_bilinear_pooling import CountSketch, CompactBilinearPooling
 
+
 class MaxPool3dSamePadding(nn.MaxPool3d):
 
     def compute_pad(self, dim, s):
@@ -80,6 +81,7 @@ class AvgPool3dSamePadding(nn.AvgPool3d):
         x = F.pad(x, pad)
         return super(AvgPool3dSamePadding, self).forward(x)
 
+
 '''
 class WaveletPooling(nn.Module):
     def __init__(self, in_channels, out_channels, dim='thw'):
@@ -102,6 +104,7 @@ class WaveletEncoding(nn.Module):
         x = self.dwt(x)
         return x
 '''
+
 
 class Unit3D(nn.Module):
 
@@ -221,7 +224,7 @@ class InceptionI3d(nn.Module):
     # Endpoints of the model in order. During construction, all the endpoints up
     # to a designated `final_endpoint` are returned in a dictionary as the
     # second return value.
-     
+
     VALID_ENDPOINTS = (
         'Conv3d_1a_7x7',
         'MaxPool3d_2a_3x3',
@@ -239,7 +242,7 @@ class InceptionI3d(nn.Module):
         'MaxPool3d_5a_2x2',
         'Mixed_5b',
         'Mixed_5c'
-        )
+    )
 
     def __init__(self, num_classes=400, spatial_squeeze=True,
                  final_endpoint='Mixed_5c', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5):
@@ -278,7 +281,7 @@ class InceptionI3d(nn.Module):
                                             stride=(2, 2, 2), padding=(3, 3, 3),  name=name+end_point)
         if self._final_endpoint == end_point:
             return
-   
+
         end_point = 'MaxPool3d_2a_3x3'
         self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2),
                                                           padding=0)
@@ -366,15 +369,31 @@ class InceptionI3d(nn.Module):
         end_point = 'Mixed_5c'
         self.end_points[end_point] = InceptionModule(
             256+320+128+128, [384, 192, 384, 48, 128, 128], name+end_point)
-        #if self._final_endpoint == end_point:
+        # if self._final_endpoint == end_point:
         #    return
 
+        end_point = 'Logits'
+        self.avg_pool = nn.AvgPool3d(kernel_size=[4, 7, 7],
+                                     stride=(1, 1, 1))
+
+        self.dropout = nn.Dropout(dropout_keep_prob)
+        self.logits = Unit3D(in_channels=384+384+128+128, output_channels=self._num_classes,
+                             kernel_shape=[1, 1, 1],
+                             padding=0,
+                             activation_fn=None,
+                             use_batch_norm=False,
+                             use_bias=True,
+                             name='logits')
+
+        self.cbp = CompactBilinearPooling(832, 2, 832)
+        self.bn_cbp = nn.BatchNorm3d(832)
+        self.bn_flow = nn.BatchNorm3d(2)
         self.build()
         self.logger = None
 
     def add_logger(self, logger, layer_name):
         """add_logger suppots for visualizing the model
-        
+
         Args:
             logger (SummaryWriter): tensorboard writer
             layer_name (str): which layer need to be visualized
@@ -386,54 +405,77 @@ class InceptionI3d(nn.Module):
     def visualize(self, feature_map):
         feature_map = feature_map.detach()
         feature_map = feature_map[0]
-        feature_map = feature_map.permute(0,1,2,3).reshape([-1,1]+list(feature_map.shape)[2:4])
-        self.logger.add_image('vis/%s' % self.vis_layer, torchvision.utils.make_grid(feature_map, nrow=16, normalize=True), self.count)
+        feature_map = feature_map.permute(0, 1, 2, 3).reshape(
+            [-1, 1]+list(feature_map.shape)[2:4])
+        self.logger.add_image('vis/%s' % self.vis_layer, torchvision.utils.make_grid(
+            feature_map, nrow=16, normalize=True), self.count)
         self.count = self.count + 1
 
     def visualize_inputs(self, feature_map):
         feature_map = feature_map.detach()
         feature_map = feature_map[0]
-        feature_map = feature_map.permute(1,0,2,3)
-        self.logger.add_image('vis/inputs', torchvision.utils.make_grid(feature_map, nrow=16, normalize=True), self.count)
+        feature_map = feature_map.permute(1, 0, 2, 3)
+        self.logger.add_image(
+            'vis/inputs', torchvision.utils.make_grid(feature_map, nrow=16, normalize=True), self.count)
 
     def build(self):
         for k in self.end_points.keys():
             self.add_module(k, self.end_points[k])
 
+    def bilinear_with_rgb_and_flow(self, x, y):
+        shape = list(x.shape)
+        # N 832 8 14 14
+        #print(x.shape)
+        #print(y.shape)
+        x = x.permute(0, 2, 3, 4, 1)
+        y = y.permute(0, 2, 3, 4, 1)
+        x = x.reshape(shape[0], -1, 832)
+        y = y.reshape(shape[0], -1, 2)
+        out = self.cbp(x, y).reshape(
+            shape[0], 8, 14, 14, 832).permute(0, 4, 1, 2, 3)
+        out = self.bn_cbp(out)
+        return out
+
     def forward(self, x):
 
+        flow = x[:, 3:, :, :, :]
+        x = x[:, :3, :, :, :]
         if self.logger is not None:
             self.visualize_inputs(x)
 
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:
                 # use _modules to work with dataparallel
+
                 x = self._modules[end_point](x)
+
+                # compact bilinear pooling with optical flow
+                if end_point == 'Mixed_4f':
+                    flow = F.max_pool3d(flow, kernel_size=(
+                        4, 16, 16), stride=(4, 16, 16))
+                    flow = self.bn_flow(flow)
+                    x = self.bilinear_with_rgb_and_flow(x, flow)
+
                 if self.logger is not None and end_point == self.vis_layer:
                     self.visualize(x)
-        return x
+
+        x = self.logits(self.dropout(self.avg_pool(x)))
+        logits = x.squeeze(3).squeeze(3)
+        logits = logits.squeeze(2)
+        return logits
 
 
 class BPI3D(nn.Module):
-    def __init__(self, num_classes, in_channels=3, **kwargs):
+    def __init__(self, num_classes, in_channels=5, **kwargs):
         super(BPI3D, self).__init__()
-        self.backbone = InceptionI3d(num_classes, in_channels=in_channels, **kwargs)
-        self.mid_channels = 1024
-        self.cbp = CompactBilinearPooling(1024, 1024, self.mid_channels)
-        self.fc = nn.Linear(self.mid_channels, num_classes)
+        assert in_channels == 5, 'input must be in rgb+flow format'
+        self.backbone = InceptionI3d(num_classes, in_channels=3, **kwargs)
+
     def forward(self, x):
         """forward 
 
         Args:
             x (Tensor): Shape N C T H W
         """
-        x = self.backbone(x) # N 1024 4 7 7
-        size = list(x.shape)
-        #x = x.reshape(size[0].size[1],-1)
-        x = x.permute(0,2,3,4,1)
-        x = x.reshape(-1, size[1])
-        x = self.cbp(x, x)
-        x = x.reshape(size[0], -1, self.mid_channels)
-        x = x.mean(dim=1)
-        x = self.fc(x)
+        x = self.backbone(x)  # N 1024 4 7 7
         return x

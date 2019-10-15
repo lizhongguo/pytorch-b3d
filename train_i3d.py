@@ -43,6 +43,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
+parser.add_argument('--fuse', type=str, default='cat', choices=['cat', 'cbp', 'cbp+cat'])
 parser.add_argument('--eval', action='store_true')
 parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
@@ -106,6 +107,8 @@ args.main_rank = (args.distributed and torch.distributed.get_rank()
                   == 0) or (not args.distributed)
 data_root = '/home/lizhongguo/dataset/pev_of'
 
+torch.manual_seed(0)
+#np.random.seed(0)
 
 def model_builder():
     global top_acc
@@ -135,6 +138,12 @@ def model_builder():
                           in_channels=3, dropout_keep_prob=0.5)
             model.backbone.load_state_dict(torch.load(
                 'models/rgb_imagenet.pt'), strict=False)
+        elif args.mode == 'rgb+flow':
+            model = BPI3D(num_classes=7,
+                          in_channels=5, dropout_keep_prob=0.5)
+            model.backbone.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                            if 'logits' not in k}, strict=False)
+
             # model.backbone.load_state_dict({k: v for k, v in torch.load('pev_split_%d_i3d_rgb_best.pt' % split_idx)['state_dict'].items()
             #                                if k.find('logits') < 0}, strict=False)
 
@@ -163,10 +172,20 @@ def model_builder():
             model = BPC3D(num_classes=7, in_channels=2)
 
     elif args.model == 'di3d':
-        model = DI3D(num_classes=7)
+        if args.mode == 'rgb':
+            model = DI3D(num_classes=7, mode=args.fuse)
+            model.backbone_f.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                              if k.find('logits') < 0}, strict=False)
+            model.backbone_s.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
+                                              if k.find('logits') < 0}, strict=False)
 
-        model.backbone_flow.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
-                                            if k.find('logits') < 0}, strict=False)
+        else:
+            model = DI3D(num_classes=7, in_channels=2, mode=args.fuse)
+            model.backbone_f.load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
+                                              if k.find('logits') < 0}, strict=False)
+            model.backbone_s.load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
+                                              if k.find('logits') < 0}, strict=False)
+
         ''''
         model.backbone_flow.load_state_dict(torch.load(
             '%s_split_%d_%s_%s_%s_%s.pt' % (
@@ -178,8 +197,6 @@ def model_builder():
             map_location=lambda storage, loc: storage)['state_dict'])
 
         '''
-        model.backbone_rgb.load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
-                                            if k.find('logits') < 0}, strict=False)
         '''
         model.backbone_s.load_state_dict(torch.load(
             '%s_split_%d_%s_%s_%s_%s.pt' % (
@@ -224,10 +241,10 @@ def model_builder():
 
     elif args.model == 'di3d':
         optimizer = optim.SGD([
-            {'params': model.fc.parameters(), 'lr': lr},
-            {'params': model.backbone_flow.parameters(), 'lr': lr},
-            {'params': model.backbone_rgb.parameters(), 'lr': lr},
-            #{'params': model.weight, 'lr': lr}
+            #{'params': model.fc.parameters(), 'lr': lr},
+            #{'params': model.backbone_f.parameters(), 'lr': lr},
+            #{'params': model.backbone_s.parameters(), 'lr': lr},
+            {'params': model.parameters(), 'lr': lr}
         ], lr=lr,
             momentum=0.9, weight_decay=0.0000001)
 
@@ -264,25 +281,29 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     elif args.model == 'r2plus1d' or args.model == 'w3d' or args.model == 'bpc3d':
         scale_size = 112
     elif args.model == 'tsn' or args.model == 'bptsn':
-        scale_size = 224 #299
+        scale_size = 224  # 299
     else:
         raise Exception('Model %s not implemented' % args.model)
 
     if args.model == 'i3d' or args.model == 'r2plus1d' or args.model == 'bpi3d' or args.model == 'bpc3d' or args.model == 'di3d':
-        mean = [0.5, 0.5, 0.5]
-        std = [0.5, 0.5, 0.5]
+        if args.mode == 'rgb':
+            mean = [0.5, 0.5, 0.5]
+            std = [0.5, 0.5, 0.5]
+        elif args.mode == 'flow':
+            mean = [0.5, 0.5]
+            std = [0.03, 0.03]
     elif args.model == 'tsn' or args.model == 'bptsn':
         if args.mode == 'rgb':
-            mean = [0., 0., 0.]
+            mean = [104./255., 117./255., 128./255.]
             std = [1., 1., 1.]
         else:
             mean = [0.5, 0.5, 0.5]
-            std = [0.5, 0.5, 0.5]
+            std = [1., 1., 1.]
     else:
         raise Exception('Model %s not implemented' % args.model)
 
     # setup dataset
-    train_transforms = Compose([MultiScaleRandomCrop([1.0], scale_size),
+    train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.95, 0.95*0.95], scale_size),
                                 RandomHorizontalFlip(),
                                 ToTensor(255.0),
                                 Normalize(mean, std)
@@ -340,9 +361,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         val_sampler = None
 
     if args.model == 'tsn' or args.model == 'bptsn':
-        val_dataset.random_select = True
+        #val_dataset.random_select = True
         val_dataset.dense_select_length = 5 if args.mode == 'flow' else 1
-
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=2, pin_memory=True, sampler=val_sampler, drop_last=False)
@@ -353,7 +373,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
-    if args.model == 'bptsn':
+    if args.model == 'di3d' and False:
         criterion = nn.MultiMarginLoss().cuda()
     else:
         criterion = nn.CrossEntropyLoss().cuda()
@@ -384,20 +404,25 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     elif args.model == 'r2plus1d' or args.model == 'w3d' or args.model == 'bpc3d':
         scale_size = 112
     elif args.model == 'tsn' or args.model == 'bptsn':
-        scale_size = 224 #299
+        scale_size = 224  # 299
     else:
         raise Exception('Model %s not implemented' % args.model)
 
     if args.model == 'i3d' or args.model == 'r2plus1d' or args.model == 'bpi3d' or args.model == 'bpc3d' or args.model == 'di3d':
-        mean = [0.5, 0.5, 0.5]
-        std = [0.5, 0.5, 0.5]
+        if args.mode == 'rgb':
+            mean = [0.5, 0.5, 0.5]
+            std = [0.5, 0.5, 0.5]
+        elif args.mode == 'flow':
+            mean = [0.5, 0.5]
+            std = [0.03, 0.03]
+
     elif args.model == 'tsn' or args.model == 'bptsn':
         if args.mode == 'rgb':
-            mean = [0., 0., 0.]
+            mean = [104./255., 117./255., 128./255.]
             std = [1., 1., 1.]
         else:
             mean = [0.5, 0.5, 0.5]
-            std = [0.5, 0.5, 0.5]
+            std = [1., 1., 1.]
 
     else:
         raise Exception('Model %s not implemented' % args.model)

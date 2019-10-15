@@ -9,6 +9,7 @@ import copy
 import numpy as np
 import pdb
 import random
+from queue import Queue
 
 
 def pil_loader(path, mode):
@@ -186,6 +187,25 @@ def make_raw_dataset(annotation_path, subset):
     return raw_dataset, min_class_len
 
 
+class Sampler():
+    def __init__(self, videos):
+        self.data = data
+        self.samples = Queue
+        self.samples.queue.extend(
+            list(np.random.choice(data, len(data), replace=False)))
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            return self.samples.get_nowait()
+        except Exception as e:
+            self.samples.queue.extend(
+                list(np.random.choice(data, len(data), replace=False)))
+            return self.samples.get_nowait()
+
+
 class PEV(data.Dataset):
     """
     Args:
@@ -258,7 +278,7 @@ class PEV(data.Dataset):
 
         self.view = view
 
-        #sample continious frames
+        # sample continious frames
         self.dense_select_length = 1
 
         '''
@@ -352,15 +372,17 @@ class PEV(data.Dataset):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
+        if self.spatial_transform is not None:
+            self.spatial_transform.randomize_parameters()
+
         if self.view == 'f' or self.view == 's':
             clip = self.get_view(index, self.view, self.mode)
             return clip, target, index
         else:
-            clip_f = self.get_view(index, 'f', self.mode)            
+            clip_f = self.get_view(index, 'f', self.mode)
             clip_s = self.get_view(index, 's', self.mode)
             return clip_f, clip_s, target, index
 
-        
     def get_view(self, index, view, mode):
         """
         Args:
@@ -381,28 +403,30 @@ class PEV(data.Dataset):
                     idx*self.sample_freq, min(idx*self.sample_freq+self.sample_freq*self.sample_step, 89)) for idx in frame_indices]
             else:
                 frame_indices = [idx*self.sample_freq for idx in frame_indices]
-        
-        frame_indices = [min(idx+i, 89) for idx in frame_indices for i in range(self.dense_select_length)]
+
+        frame_indices = [
+            min(idx+i, 89) for idx in frame_indices for i in range(self.dense_select_length)]
 
         if mode == 'rgb':
             clip = self.loader(path, frame_indices, 'rgb', view)
-            if self.spatial_transform is not None:
-                self.spatial_transform.randomize_parameters()
-                clip = [self.spatial_transform(img) for img in clip]
+            # if self.spatial_transform is not None:
+            #    self.spatial_transform.randomize_parameters()
+            clip = [self.spatial_transform(img) for img in clip]
 
             clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
-            
+
             shape = list(clip.shape)
-            clip = clip.reshape(shape[0],shape[1]*self.dense_select_length,-1,shape[3],shape[4])
+            clip = clip.reshape(
+                shape[0]*self.dense_select_length, -1, shape[2], shape[3])
 
         elif mode == 'flow':
             flow_x = self.loader(path, frame_indices, 'flow_x', view)
             flow_y = self.loader(path, frame_indices, 'flow_y', view)
 
-            if self.spatial_transform is not None:
-                self.spatial_transform.randomize_parameters()
-                flow_x = [self.spatial_transform(img) for img in flow_x]
-                flow_y = [self.spatial_transform(img) for img in flow_y]
+            # if self.spatial_transform is not None:
+            #    self.spatial_transform.randomize_parameters()
+            flow_x = [self.spatial_transform(img) for img in flow_x]
+            flow_y = [self.spatial_transform(img) for img in flow_y]
 
             flow_x = torch.stack(flow_x, 0)
             flow_y = torch.stack(flow_y, 0)
@@ -410,31 +434,31 @@ class PEV(data.Dataset):
             clip = clip.permute(1, 0, 2, 3)
 
             shape = list(clip.shape)
-            clip = clip.reshape(shape[0],shape[1]*self.dense_select_length,-1,shape[3],shape[4])
-
+            clip = clip.reshape(
+                shape[0]*self.dense_select_length, -1, shape[2], shape[3])
 
         elif mode == 'rgb+flow':
             rgb = self.loader(path, frame_indices, 'rgb', view)
             flow_x = self.loader(path, frame_indices, 'flow_x', view)
             flow_y = self.loader(path, frame_indices, 'flow_y', view)
 
-            if self.spatial_transform is not None:
-                self.spatial_transform.randomize_parameters()
-                rgb = [self.spatial_transform(img) for img in rgb]
-                flow_x = [self.spatial_transform(img) for img in flow_x]
-                flow_y = [self.spatial_transform(img) for img in flow_y]
+            # if self.spatial_transform is not None:
+            #    self.spatial_transform.randomize_parameters()
+            rgb = [self.spatial_transform(img) for img in rgb]
+            flow_x = [self.spatial_transform(img) for img in flow_x]
+            flow_y = [self.spatial_transform(img) for img in flow_y]
 
             flow_x = torch.stack(flow_x, 0)
             flow_y = torch.stack(flow_y, 0)
             rgb = torch.stack(rgb, 0)
             clip = torch.cat((rgb, flow_x, flow_y), dim=1)
             clip = clip.permute(1, 0, 2, 3)
-            
+
             shape = list(clip.shape)
-            clip = clip.reshape(shape[0],shape[1]*self.dense_select_length,-1,shape[3],shape[4])
+            clip = clip.reshape(
+                shape[0]*self.dense_select_length, -1, shape[2], shape[3])
 
         return clip
-
 
     def __len__(self):
         return len(self.data)

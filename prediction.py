@@ -1,5 +1,12 @@
 import torch
 from collections.abc import Iterable
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--split',  type=int, default=1)
+parser.add_argument('--mode',  type=str, default='rgb')
+
+args = parser.parse_args()
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -75,7 +82,7 @@ class MatrixMeter(object):
                       for i in self._matrix[l])
         return _str
 
-split_idx = 1
+split_idx = args.split
 model = 'i3d'
 dataset = 'pev'
 split_list = open('/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx)
@@ -88,8 +95,8 @@ for i, s in enumerate(split_list):
     id2label[i] = label
 
 
-rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, 'rgb', 's'))
-flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, 'rgb', 'f'))
+rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode, 's'))
+flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, args.mode, 'f'))
 
 top1 = AverageMeter()
 top2 = AverageMeter()

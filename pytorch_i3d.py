@@ -136,6 +136,8 @@ class Unit3D(nn.Module):
         if self._use_batch_norm:
             self.bn = nn.BatchNorm3d(
                 self._output_channels, eps=0.001, momentum=0.01)
+            #self.bn.weight.requires_grad = False
+            #self.bn.bias.requires_grad = False
 
     def compute_pad(self, dim, s):
         if s % self._stride[dim] == 0:
