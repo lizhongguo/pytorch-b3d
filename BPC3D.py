@@ -50,16 +50,16 @@ class C3D(nn.Module):
 
     def forward(self, x):
 
-        x = self.relu(self.conv1(x))
-        x = self.bn1(self.pool1(x))
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)
 
-        x = self.relu(self.conv2a(x))
+        x = self.relu(self.bn2(self.conv2a(x)))
         #x = self.relu(self.conv2b(x))
-        x = self.bn2(self.pool2(x))
+        x = self.pool2(x)
 
-        x = self.relu(self.conv3a(x))
+        x = self.relu(self.bn3(self.conv3a(x)))
         x = self.relu(self.conv3b(x))
-        x = self.bn3(self.pool3(x))
+        x = self.pool3(x)
 
         return x
         '''

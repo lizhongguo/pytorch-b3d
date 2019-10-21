@@ -372,8 +372,8 @@ class PEV(data.Dataset):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        if self.spatial_transform is not None:
-            self.spatial_transform.randomize_parameters()
+        # if self.spatial_transform is not None:
+        #    self.spatial_transform.randomize_parameters()
 
         if self.view == 'f' or self.view == 's':
             clip = self.get_view(index, self.view, self.mode)
@@ -409,8 +409,8 @@ class PEV(data.Dataset):
 
         if mode == 'rgb':
             clip = self.loader(path, frame_indices, 'rgb', view)
-            # if self.spatial_transform is not None:
-            #    self.spatial_transform.randomize_parameters()
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
             clip = [self.spatial_transform(img) for img in clip]
 
             clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
@@ -423,8 +423,8 @@ class PEV(data.Dataset):
             flow_x = self.loader(path, frame_indices, 'flow_x', view)
             flow_y = self.loader(path, frame_indices, 'flow_y', view)
 
-            # if self.spatial_transform is not None:
-            #    self.spatial_transform.randomize_parameters()
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
             flow_x = [self.spatial_transform(img) for img in flow_x]
             flow_y = [self.spatial_transform(img) for img in flow_y]
 
@@ -442,8 +442,8 @@ class PEV(data.Dataset):
             flow_x = self.loader(path, frame_indices, 'flow_x', view)
             flow_y = self.loader(path, frame_indices, 'flow_y', view)
 
-            # if self.spatial_transform is not None:
-            #    self.spatial_transform.randomize_parameters()
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
             rgb = [self.spatial_transform(img) for img in rgb]
             flow_x = [self.spatial_transform(img) for img in flow_x]
             flow_y = [self.spatial_transform(img) for img in flow_y]

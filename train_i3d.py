@@ -36,14 +36,15 @@ import sys
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
-
+import random
 #from mi3d import MInceptionI3d
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
-parser.add_argument('--fuse', type=str, default='cat', choices=['cat', 'cbp', 'cbp+cat'])
+parser.add_argument('--fuse', type=str, default='cat',
+                    choices=['cat', 'cbp', 'cbp+cat'])
 parser.add_argument('--eval', action='store_true')
 parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
@@ -72,6 +73,15 @@ parser.add_argument('--split_idx', type=int, default=1)
 
 args = parser.parse_args()
 top_acc = 0.
+
+try:
+    last_result = torch.load('%s_split_%d_%s_%s_%s_%s.pt' % (
+        'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+    top_acc = last_result['top_acc']
+except Exception as e:
+    top_acc = 0.
+
+print('last top_acc : %.2f' % top_acc)
 
 split_idx = args.split_idx
 
@@ -108,7 +118,6 @@ args.main_rank = (args.distributed and torch.distributed.get_rank()
 data_root = '/home/lizhongguo/dataset/pev_of'
 
 torch.manual_seed(0)
-#np.random.seed(0)
 
 def model_builder():
     global top_acc
@@ -226,7 +235,7 @@ def model_builder():
     model = model.cuda()
 
     if args.apex:
-        lr = args.lr * args.batch_size * args.world_size / 64.
+        lr = args.lr * args.batch_size * args.world_size / 56.
     else:
         lr = args.lr * args.batch_size / 56.
 
@@ -247,11 +256,13 @@ def model_builder():
             {'params': model.parameters(), 'lr': lr}
         ], lr=lr,
             momentum=0.9, weight_decay=0.0000001)
+        
+        #optimizer = optim.Adam(model.parameters(), lr=lr)
 
     else:
         optimizer = optim.SGD(model.parameters(), lr=lr,
                               momentum=0.9, weight_decay=0.0000001)
-    #lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [30, 60])
+    lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, [160, 320], 1.)
     if args.apex:
         model, optimizer = amp.initialize(model, optimizer,
                                           opt_level=args.opt_level,
@@ -266,7 +277,7 @@ def model_builder():
     else:
         model = nn.DataParallel(model)
 
-    return model, optimizer
+    return model, optimizer, lr_sched
 
 
 def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
@@ -369,7 +380,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     dataloaders = {'train': dataloader, 'val': val_dataloader}
 
-    model, optimizer = model_builder()
+    model, optimizer, lr_sched = model_builder()
 
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
@@ -381,7 +392,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     while steps < max_steps:
         count = train(
-            model, dataloaders['train'], criterion, optimizer, None, count, logger)
+            model, dataloaders['train'], criterion, optimizer, lr_sched, count, logger)
         val(model, dataloaders['val'], criterion, steps, logger)
 
         # i3d.load_state_dict(torch.load('pev_i3d_best.pt'))
@@ -451,7 +462,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         val_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=False)
 
     # setup the model
-    model, _ = model_builder()
+    model, _, _ = model_builder()
     model.train(False)
 
     if args.visualize:
@@ -556,7 +567,7 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
             print("Iteration %d Loss %.4f Top1:%.2f Top2:%.2f" %
                   (count, loss.item(), top1, top2))
 
-    # lr_sched.step()
+    lr_sched.step()
     return count
 
 

@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from CompactBilinearPooling import CountSketch, CompactBilinearPooling
 
 class DI3D(nn.Module):
-    def __init__(self, num_classes, in_channels=3, mode='cat', **kwargs):
+    def __init__(self, num_classes, in_channels=3, mode='cat', modal='f+s', **kwargs):
         super(DI3D, self).__init__()
 
         self.backbone_f = InceptionI3d(
