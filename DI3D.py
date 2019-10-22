@@ -55,7 +55,6 @@ class DI3D(nn.Module):
 
 
 class MBI3D(nn.Module):
-    # todo backbone sharing weight
     def __init__(self, num_classes, in_channels=3, mode='cat', input_modal=['frgb', 'fof', 'srgb', 'sof'], share_weight=False, **kwargs):
         super(MBI3D, self).__init__()
 
