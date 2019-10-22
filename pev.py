@@ -411,7 +411,7 @@ class PEV(data.Dataset):
             clip = self.loader(path, frame_indices, 'rgb', view)
             if self.spatial_transform is not None:
                 self.spatial_transform.randomize_parameters()
-            clip = [self.spatial_transform(img) for img in clip]
+                clip = [self.spatial_transform(img) for img in clip]
 
             clip = torch.stack(clip, 0).permute(1, 0, 2, 3)
 
@@ -425,8 +425,8 @@ class PEV(data.Dataset):
 
             if self.spatial_transform is not None:
                 self.spatial_transform.randomize_parameters()
-            flow_x = [self.spatial_transform(img) for img in flow_x]
-            flow_y = [self.spatial_transform(img) for img in flow_y]
+                flow_x = [self.spatial_transform(img) for img in flow_x]
+                flow_y = [self.spatial_transform(img) for img in flow_y]
 
             flow_x = torch.stack(flow_x, 0)
             flow_y = torch.stack(flow_y, 0)
@@ -444,9 +444,12 @@ class PEV(data.Dataset):
 
             if self.spatial_transform is not None:
                 self.spatial_transform.randomize_parameters()
-            rgb = [self.spatial_transform(img) for img in rgb]
-            flow_x = [self.spatial_transform(img) for img in flow_x]
-            flow_y = [self.spatial_transform(img) for img in flow_y]
+                rgb = [self.spatial_transform(img) for img in rgb]
+
+            if self.spatial_transform is not None:
+                self.spatial_transform.randomize_parameters()
+                flow_x = [self.spatial_transform(img) for img in flow_x]
+                flow_y = [self.spatial_transform(img) for img in flow_y]
 
             flow_x = torch.stack(flow_x, 0)
             flow_y = torch.stack(flow_y, 0)

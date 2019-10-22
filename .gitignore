@@ -1,4 +1,6 @@
-.vscode/settings.json
+.vscode
 *.pyc
-.vscode/sftp.json
-.vscode/sftp.json
+.vscode
+.vscode
+*.pth
+*.pt
