@@ -1,3 +1,4 @@
+import random
 from BPTSN import BPTSN
 from tsn import TSN
 import pdb
@@ -36,7 +37,6 @@ import sys
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"]='0,1,2,3'
-import random
 #from mi3d import MInceptionI3d
 
 parser = argparse.ArgumentParser()
@@ -118,6 +118,7 @@ args.main_rank = (args.distributed and torch.distributed.get_rank()
 data_root = '/home/lizhongguo/dataset/pev_of'
 
 torch.manual_seed(0)
+
 
 def model_builder():
     global top_acc
@@ -256,7 +257,7 @@ def model_builder():
             {'params': model.parameters(), 'lr': lr}
         ], lr=lr,
             momentum=0.9, weight_decay=0.0000001)
-        
+
         #optimizer = optim.Adam(model.parameters(), lr=lr)
 
     else:
@@ -303,6 +304,10 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
         elif args.mode == 'flow':
             mean = [0.5, 0.5]
             std = [0.03, 0.03]
+        elif args.mode == 'rgb+flow':
+            mean = [0.5, 0.5, 0.5, 0.5, 0.5]
+            std = [0.5, 0.5, 0.5, 0.03, 0.03]
+
     elif args.model == 'tsn' or args.model == 'bptsn':
         if args.mode == 'rgb':
             mean = [104./255., 117./255., 128./255.]
