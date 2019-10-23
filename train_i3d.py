@@ -11,7 +11,7 @@ from R2Plus1D import R2Plus1DClassifier
 from W3D import W3D
 from BPI3D import BPI3D
 from BPC3D import BPC3D
-from DI3D import DI3D
+from DI3D import DI3D, MBI3D
 
 from torch.utils.tensorboard import SummaryWriter
 from spatial_transform import (
@@ -50,7 +50,7 @@ parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--epochs', type=int, default=80)
 parser.add_argument('--model', type=str,
-                    choices=['i3d', 'r2plus1d', 'w3d', 'tsn', 'bptsn', 'bpi3d', 'bpc3d', 'di3d'])
+                    choices=['i3d', 'r2plus1d', 'w3d', 'tsn', 'bptsn', 'bpi3d', 'bpc3d', 'di3d', 'mbi3d'])
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--sample_freq', type=int, default=1)
 parser.add_argument('--sample_step', type=int, default=1)
@@ -196,23 +196,18 @@ def model_builder():
             model.backbone_s.load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
                                               if k.find('logits') < 0}, strict=False)
 
-        ''''
-        model.backbone_flow.load_state_dict(torch.load(
-            '%s_split_%d_%s_%s_%s_%s.pt' % (
-                'pev', split_idx, 'i3d', 'flow', 'best', args.view),
-            map_location=lambda storage, loc: storage)['state_dict'])
-        model.backbone_rgb.load_state_dict(torch.load(
-            '%s_split_%d_%s_%s_%s_%s.pt' % (
-                'pev', split_idx, 'i3d', 'rgb', 'best', args.view),
-            map_location=lambda storage, loc: storage)['state_dict'])
+    elif args.model == 'mbi3d':
+        if args.view == 'f' or args.view == 's':
+            assert args.mode == 'rgb+flow'
+            input_modal = ['%srgb' % args.view, '%sflow' % args.view]
+        elif args.view == 'fs' and (args.mode == 'rgb' or args.mode == 'flow'):
+            input_modal = ['f%s' % args.mode, 's%s' % args.mode]
+        else:
+            assert args.view == 'fs' and args.mode == 'rgb+flow'
+            input_modal = ['frgb', 'fflow', 'srgb', 'sflow']
 
-        '''
-        '''
-        model.backbone_s.load_state_dict(torch.load(
-            '%s_split_%d_%s_%s_%s_%s.pt' % (
-                'pev', split_idx, 'i3d', args.mode, 'best', 's'),
-            map_location=lambda storage, loc: storage)['state_dict'])
-        '''
+        model = MBI3D(7, args.fuse, input_modal, True)
+
     if args.sync_bn and args.apex:
         import apex
         print("using apex synced BN")
@@ -288,7 +283,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     else:
         logger = None
 
-    if args.model == 'i3d' or args.model == 'bpi3d' or args.model == 'di3d':
+    if args.model == 'i3d' or args.model == 'bpi3d' or args.model == 'di3d' or args.model == 'mbi3d':
         scale_size = 224
     elif args.model == 'r2plus1d' or args.model == 'w3d' or args.model == 'bpc3d':
         scale_size = 112
@@ -297,7 +292,8 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
     else:
         raise Exception('Model %s not implemented' % args.model)
 
-    if args.model == 'i3d' or args.model == 'r2plus1d' or args.model == 'bpi3d' or args.model == 'bpc3d' or args.model == 'di3d':
+    if args.model == 'i3d' or args.model == 'r2plus1d' or args.model == 'bpi3d' \
+            or args.model == 'bpc3d' or args.model == 'di3d' or args.model == 'mbi3d':
         if args.mode == 'rgb':
             mean = [0.5, 0.5, 0.5]
             std = [0.5, 0.5, 0.5]
@@ -389,10 +385,7 @@ def run(max_steps=80, mode='rgb', batch_size=32, save_model=''):
 
     steps = 0
     # criterion = MLL(dataset.multi_label_shape)    # train it
-    if args.model == 'di3d' and False:
-        criterion = nn.MultiMarginLoss().cuda()
-    else:
-        criterion = nn.CrossEntropyLoss().cuda()
+    criterion = nn.CrossEntropyLoss().cuda()
     count = 0
 
     while steps < max_steps:
@@ -415,7 +408,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
 
     logger = SummaryWriter()
 
-    if args.model == 'i3d' or args.model == 'bpi3d' or args.model == 'di3d':
+    if args.model == 'i3d' or args.model == 'bpi3d' or args.model == 'di3d' or args.model == 'mbi3d':
         scale_size = 224
     elif args.model == 'r2plus1d' or args.model == 'w3d' or args.model == 'bpc3d':
         scale_size = 112
@@ -431,6 +424,9 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         elif args.mode == 'flow':
             mean = [0.5, 0.5]
             std = [0.03, 0.03]
+        elif args.mode == 'rgb+flow':
+            mean = [0.5, 0.5, 0.5, 0.5, 0.5]
+            std = [0.5, 0.5, 0.5, 0.03, 0.03]
 
     elif args.model == 'tsn' or args.model == 'bptsn':
         if args.mode == 'rgb':
@@ -486,6 +482,25 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                 input_f, input_s = input_f.cuda(), input_s.cuda()
                 labels = labels.cuda(non_blocking=True)
                 output = model(input_f, input_s)
+
+            elif args.model == 'mbi3d':
+                if args.view == 'fs':
+                    input_f, input_s, labels, _ = data
+                    input_f, input_s = input_f.cuda(), input_s.cuda()
+                    labels = labels.cuda(non_blocking=True)
+
+                    if args.mode == 'rgb+flow':
+                        output = model(input_f[:, :3, :, :, :], input_f[:, 3:, :, :, :],
+                                       input_s[:, :3, :, :, :], input_s[:, 3:, :, :, :])
+                    else:
+                        output = model(input_f, input_s)
+                elif args.view == 'f' or args.view == 's':
+                    assert args.mode == 'rgb+flow'
+                    inputs, labels, _ = data
+                    inputs = inputs.cuda()
+                    labels = labels.cuda(non_blocking=True)
+                    output = model(inputs[:, :3, :, :, :],
+                                   inputs[:, 3:, :, :, :])
 
             else:
                 inputs, labels, _ = data
@@ -543,6 +558,26 @@ def train(model, dataloader, criterion, optimizer, lr_sched, count, logger=None)
             output = model(input_f, input_s)
             loss = criterion(output, labels)
 
+        elif args.model == 'mbi3d':
+            if args.view == 'fs':
+                input_f, input_s, labels, _ = data
+                input_f, input_s = input_f.cuda(), input_s.cuda()
+                labels = labels.cuda(non_blocking=True)
+
+                if args.mode == 'rgb+flow':
+                    output = model(input_f[:, :3, :, :, :], input_f[:, 3:, :, :, :],
+                                   input_s[:, :3, :, :, :], input_s[:, 3:, :, :, :])
+                else:
+                    output = model(input_f, input_s)
+            elif args.view == 'f' or args.view == 's':
+                assert args.mode == 'rgb+flow'
+                inputs, labels, _ = data
+                inputs = inputs.cuda()
+                labels = labels.cuda(non_blocking=True)
+                output = model(inputs[:, :3, :, :, :], inputs[:, 3:, :, :, :])
+            loss = criterion(output, labels)
+
+
         else:
             inputs, labels, _ = data
             inputs = inputs.cuda()
@@ -594,6 +629,25 @@ def val(model, dataloader, criterion, epoch, logger=None):
                 input_f, input_s = input_f.cuda(), input_s.cuda()
                 labels = labels.cuda(non_blocking=True)
                 output = model(input_f, input_s)
+
+            elif args.model == 'mbi3d':
+                if args.view == 'fs':
+                    input_f, input_s, labels, _ = data
+                    input_f, input_s = input_f.cuda(), input_s.cuda()
+                    labels = labels.cuda(non_blocking=True)
+
+                    if args.mode == 'rgb+flow':
+                        output = model(input_f[:, :3, :, :, :], input_f[:, 3:, :, :, :],
+                                       input_s[:, :3, :, :, :], input_s[:, 3:, :, :, :])
+                    else:
+                        output = model(input_f, input_s)
+                elif args.view == 'f' or args.view == 's':
+                    assert args.mode == 'rgb+flow'
+                    inputs, labels, _ = data
+                    inputs = inputs.cuda()
+                    labels = labels.cuda(non_blocking=True)
+                    output = model(inputs[:, :3, :, :, :],
+                                   inputs[:, 3:, :, :, :])
 
             else:
                 inputs, labels, _ = data

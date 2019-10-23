@@ -7,7 +7,7 @@ from CompactBilinearPoolingFourStream import CompactBilinearPoolingFourStream
 
 
 class DI3D(nn.Module):
-    # todo backbone sharing weight
+    #todo backbone sharing weight
     def __init__(self, num_classes, in_channels=3, mode='cat', **kwargs):
         super(DI3D, self).__init__()
 
@@ -55,10 +55,9 @@ class DI3D(nn.Module):
 
 
 class MBI3D(nn.Module):
-    def __init__(self, num_classes, in_channels=3, mode='cat', input_modal=['frgb', 'fof', 'srgb', 'sof'], share_weight=False, **kwargs):
+    def __init__(self, num_classes, mode='cat', input_modal=['frgb', 'fflow', 'srgb', 'sflow'], share_weight=False, **kwargs):
         super(MBI3D, self).__init__()
 
-        self.in_channels = in_channels
         self.backbone = dict()
         if share_weight:
             input_modal = [m[1:] for m in input_modal]
@@ -72,7 +71,7 @@ class MBI3D(nn.Module):
                     self.backbone[m].load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                                                       if k.find('logits') < 0}, strict=False)
 
-                elif 'of' in m:
+                elif 'flow' in m:
                     self.backbone[m] = InceptionI3d(
                         num_classes, in_channels=2, extract_feature=True, **kwargs)
                     self.backbone[m].load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
@@ -80,7 +79,7 @@ class MBI3D(nn.Module):
 
                 else:
                     raise NotImplementedError
-                self.add_module('backbone_%f' % m, self.backbone[m])
+                self.add_module('backbone_%s' % m, self.backbone[m])
 
         self.dropout = nn.Dropout(p=0.5)
 
