@@ -206,7 +206,7 @@ def model_builder():
             assert args.view == 'fs' and args.mode == 'rgb+flow'
             input_modal = ['frgb', 'fflow', 'srgb', 'sflow']
 
-        model = MBI3D(7, args.fuse, input_modal, True)
+        model = MBI3D(7, args.fuse, input_modal, share_weight=False)
 
     if args.sync_bn and args.apex:
         import apex

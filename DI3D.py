@@ -89,8 +89,8 @@ class MBI3D(nn.Module):
                 self.fc = nn.Linear(1024, num_classes)
             elif len(input_modal) == 4:
                 self.mcb = CompactBilinearPoolingFourStream(
-                    1024, 1024, 1024, 1024, 1024)
-                self.fc = nn.Linear(1024, num_classes)
+                    1024, 1024, 1024, 1024, 1024*len(input_modal)/2)
+                self.fc = nn.Linear(1024*len(input_modal)/2, num_classes)
 
         elif mode == 'cat':
             self.fc = nn.Linear(1024*len(input_modal), num_classes)
