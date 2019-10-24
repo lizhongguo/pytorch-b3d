@@ -388,8 +388,8 @@ class CompactBilinearPoolingFnFourStream(Function):
 
         del re_fa, im_fa, grad_re_fa, grad_im_fa, grad_fa, \
             re_fb, im_fb, grad_re_fb, grad_im_fb, grad_fb, \
-            re_fa, im_fc, grad_re_fc, grad_im_fc, grad_fc, \
-            re_fa, im_fd, grad_re_fd, grad_im_fd, grad_fd
+            re_fc, im_fc, grad_re_fc, grad_im_fc, grad_fc, \
+            re_fd, im_fd, grad_re_fd, grad_im_fd, grad_fd
 
         return None, None, None, None, None, None, None, None, None, grad_a, grad_b, grad_c, grad_d, None
 
@@ -474,7 +474,7 @@ class CompactBilinearPoolingFourStream(nn.Module):
 
     def __init__(self, input1_size, input2_size, input3_size, input4_size, output_size,
                  h1=None, s1=None, h2=None, s2=None, h3=None, s3=None, h4=None, s4=None, force_cpu_scatter_add=False):
-        super(CompactBilinearPooling, self).__init__()
+        super(CompactBilinearPoolingFourStream, self).__init__()
         self.add_module('sketch1', CountSketch(
             input1_size, output_size, h1, s1))
         self.add_module('sketch2', CountSketch(

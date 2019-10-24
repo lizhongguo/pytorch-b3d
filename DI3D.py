@@ -86,11 +86,14 @@ class MBI3D(nn.Module):
         if mode == 'cbp':
             if len(input_modal) == 2:
                 self.mcb = CompactBilinearPooling(1024, 1024, 1024)
+                self.bn = nn.BatchNorm1d(1024)
                 self.fc = nn.Linear(1024, num_classes)
+ 
             elif len(input_modal) == 4:
                 self.mcb = CompactBilinearPoolingFourStream(
-                    1024, 1024, 1024, 1024, 1024*len(input_modal)/2)
-                self.fc = nn.Linear(1024*len(input_modal)/2, num_classes)
+                    1024, 1024, 1024, 1024, 1024*len(input_modal)//2)
+                self.bn = nn.BatchNorm1d(1024*len(input_modal)//2)
+                self.fc = nn.Linear(1024*len(input_modal)//2, num_classes)
 
         elif mode == 'cat':
             self.fc = nn.Linear(1024*len(input_modal), num_classes)
@@ -107,6 +110,7 @@ class MBI3D(nn.Module):
 
         if self.mode == 'cbp':
             feature = self.mcb(*features)
+            feature = self.bn(feature)
             feature = self.dropout(feature)
 
         elif self.mode == 'cat':
