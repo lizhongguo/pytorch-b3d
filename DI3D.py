@@ -18,8 +18,8 @@ class DI3D(nn.Module):
         self.dropout = nn.Dropout(p=0.5)
 
         if mode == 'cbp':
-            self.mcb = CompactBilinearPooling(1024, 1024, 1024)
-            self.fc = nn.Linear(1024, num_classes)
+            self.mcb = CompactBilinearPooling(1024, 1024, 2048)
+            self.fc = nn.Linear(2048, num_classes)
 
         elif mode == 'cat':
             self.fc = nn.Linear(2048, num_classes)
@@ -85,15 +85,15 @@ class MBI3D(nn.Module):
 
         if mode == 'cbp':
             if len(input_modal) == 2:
-                self.mcb = CompactBilinearPooling(1024, 1024, 1024)
-                self.bn = nn.BatchNorm1d(1024)
-                self.fc = nn.Linear(1024, num_classes)
+                self.mcb = CompactBilinearPooling(1024, 1024, 2048)
+                self.fc = nn.Linear(2048, num_classes)
  
             elif len(input_modal) == 4:
                 self.mcb = CompactBilinearPoolingFourStream(
-                    1024, 1024, 1024, 1024, 1024*len(input_modal)//2)
-                self.bn = nn.BatchNorm1d(1024*len(input_modal)//2)
-                self.fc = nn.Linear(1024*len(input_modal)//2, num_classes)
+                    1024, 1024, 1024, 1024, 1024*len(input_modal))
+                self.fc = nn.Linear(1024*len(input_modal), num_classes)
+
+            self.N = 1024*len(input_modal)
 
         elif mode == 'cat':
             self.fc = nn.Linear(1024*len(input_modal), num_classes)
@@ -106,11 +106,10 @@ class MBI3D(nn.Module):
     def forward(self, *inputs):
 
         features = [self.backbone[modal](
-            data) for modal, data in zip(self.input_modal, inputs)]
+            data) / self.N for modal, data in zip(self.input_modal, inputs)]
 
         if self.mode == 'cbp':
-            feature = self.mcb(*features)
-            feature = self.bn(feature)
+            feature = self.mcb(*features) * self.N
             feature = self.dropout(feature)
 
         elif self.mode == 'cat':
