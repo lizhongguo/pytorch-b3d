@@ -70,13 +70,18 @@ parser.add_argument('--loss-scale', type=str, default="dynamic")
 parser.add_argument('--apex', action='store_true')
 parser.add_argument('--split_idx', type=int, default=1)
 
+parser.add_argument('--fixed_seed', action='store_true')
 
 args = parser.parse_args()
 top_acc = 0.
 
 try:
-    last_result = torch.load('%s_split_%d_%s_%s_%s_%s.pt' % (
-        'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+    if args.fixed_seed:
+        last_result = torch.load('%s_split_%d_%s_%s_%s_%s_seedfixed.pt' % (
+            'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+    else:
+        last_result = torch.load('%s_split_%d_%s_%s_%s_%s.pt' % (
+            'pev', args.split_idx, args.model, args.mode, 'best', args.view))
     top_acc = last_result['top_acc']
 except Exception as e:
     top_acc = 0.
@@ -118,7 +123,9 @@ args.main_rank = (args.distributed and torch.distributed.get_rank()
 data_root = '/home/lizhongguo/dataset/pev_of'
 
 torch.manual_seed(0)
-
+if args.fixed_seed:
+    np.random.seed(0)
+    random.seed(0)
 
 def model_builder():
     global top_acc
@@ -417,7 +424,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     else:
         raise Exception('Model %s not implemented' % args.model)
 
-    if args.model == 'i3d' or args.model == 'r2plus1d' or args.model == 'bpi3d' or args.model == 'bpc3d' or args.model == 'di3d':
+    if args.model == 'i3d' or args.model == 'r2plus1d' or args.model == 'bpi3d' or args.model == 'bpc3d' \
+        or args.model == 'di3d' or args.model == 'mbi3d':
         if args.mode == 'rgb':
             mean = [0.5, 0.5, 0.5]
             std = [0.5, 0.5, 0.5]
@@ -700,8 +708,12 @@ def save(model, comment):
         state_dict = model.module.state_dict()
     else:
         state_dict = model.state_dict()
-    torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
-               '%s_split_%d_%s_%s_%s_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
+    if args.fixed_seed:
+        torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
+                '%s_split_%d_%s_%s_%s_%s_seedfixed.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
+    else:
+        torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
+                '%s_split_%d_%s_%s_%s_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
 
 
 def accuracy(output, target, topk=(1,)):

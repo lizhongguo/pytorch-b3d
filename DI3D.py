@@ -2,9 +2,9 @@ import torch
 from pytorch_i3d import InceptionI3d
 import torch.nn as nn
 import torch.nn.functional as F
-from CompactBilinearPooling import CompactBilinearPooling
-from CompactBilinearPoolingFourStream import CompactBilinearPoolingFourStream
-
+#from CompactBilinearPooling import CompactBilinearPooling
+from CompactBilinearPoolingFourStream import CompactBilinearPooling, CompactBilinearPoolingFourStream
+import math
 
 class DI3D(nn.Module):
     #todo backbone sharing weight
@@ -62,6 +62,7 @@ class MBI3D(nn.Module):
         if share_weight:
             input_modal = [m[1:] for m in input_modal]
         self.input_modal = input_modal
+        self.norm = dict()
 
         for m in input_modal:
             if m not in self.backbone:
@@ -70,16 +71,23 @@ class MBI3D(nn.Module):
                         num_classes, in_channels=3, extract_feature=True, **kwargs)
                     self.backbone[m].load_state_dict({k: v for k, v in torch.load('models/rgb_imagenet.pt').items()
                                                       if k.find('logits') < 0}, strict=False)
+                    self.norm[m] = 1.
 
                 elif 'flow' in m:
                     self.backbone[m] = InceptionI3d(
                         num_classes, in_channels=2, extract_feature=True, **kwargs)
                     self.backbone[m].load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
                                                       if k.find('logits') < 0}, strict=False)
+                    self.norm[m] = 4.
 
                 else:
                     raise NotImplementedError
                 self.add_module('backbone_%s' % m, self.backbone[m])
+
+        s = 1.
+        for m in self.norm:
+            s = s * self.norm[m]
+        self.norm['output'] = math.sqrt(s)
 
         self.dropout = nn.Dropout(p=0.5)
 
@@ -93,8 +101,6 @@ class MBI3D(nn.Module):
                     1024, 1024, 1024, 1024, 1024*len(input_modal))
                 self.fc = nn.Linear(1024*len(input_modal), num_classes)
 
-            self.N = 1024*len(input_modal)
-
         elif mode == 'cat':
             self.fc = nn.Linear(1024*len(input_modal), num_classes)
 
@@ -106,10 +112,13 @@ class MBI3D(nn.Module):
     def forward(self, *inputs):
 
         features = [self.backbone[modal](
-            data) / self.N for modal, data in zip(self.input_modal, inputs)]
+            data) / self.norm[modal] for modal, data in zip(self.input_modal, inputs)]
+
+        #for f in features:
+        #    print(f.max())
 
         if self.mode == 'cbp':
-            feature = self.mcb(*features) * self.N
+            feature = self.mcb(*features) * self.norm['output']
             feature = self.dropout(feature)
 
         elif self.mode == 'cat':
