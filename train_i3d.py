@@ -80,8 +80,13 @@ try:
         last_result = torch.load('%s_split_%d_%s_%s_%s_%s_seedfixed.pt' % (
             'pev', args.split_idx, args.model, args.mode, 'best', args.view))
     else:
-        last_result = torch.load('%s_split_%d_%s_%s_%s_%s.pt' % (
-            'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+        if args.fuse == 'cbp':
+            last_result = torch.load('%s_split_%d_%s_%s_%s_%s.pt' % (
+                'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+        else:
+            last_result = torch.load('%s_split_%d_%s_%s_%s_cat_%s.pt' % (
+                'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+
     top_acc = last_result['top_acc']
 except Exception as e:
     top_acc = 0.
@@ -712,9 +717,12 @@ def save(model, comment):
         torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
                 '%s_split_%d_%s_%s_%s_%s_seedfixed.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
     else:
-        torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
-                '%s_split_%d_%s_%s_%s_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
-
+        if args.fuse == 'cbp':
+            torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
+                    '%s_split_%d_%s_%s_%s_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
+        else:
+            torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
+                    '%s_split_%d_%s_%s_%s_cat_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
 
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
