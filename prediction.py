@@ -1,6 +1,9 @@
 import torch
 from collections.abc import Iterable
 import argparse
+import numpy as np
+from sklearn.metrics import confusion_matrix, accuracy_score, roc_auc_score
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--split',  type=int, default=1)
 parser.add_argument('--mode',  type=str, default='rgb')
@@ -83,7 +86,7 @@ class MatrixMeter(object):
         return _str
 
 split_idx = args.split
-model = 'i3d'
+model = 'mbi3d'
 dataset = 'pev'
 split_list = open('/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx)
 view = 's'
@@ -95,8 +98,8 @@ for i, s in enumerate(split_list):
     id2label[i] = label
 
 
-rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode, 's'))
-flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, args.mode, 'f'))
+rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, 'rgb', 'fs'))
+flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, 'flow', 'fs'))
 
 top1 = AverageMeter()
 top2 = AverageMeter()
@@ -107,9 +110,12 @@ rgb = { k.item():v for k,v in rgb.items() }
 flow = { k.item():v for k,v in flow.items() }
 
 pred_result = dict()
-for k,v in rgb.items():
+for k,v in flow.items():
     pred_result[k] = v
-    pred_result[k].extend(flow[k])
+    #pred_result[k].extend(flow[k])
+
+y_true = []
+y_score = []
 
 for i in pred_result:
     avg_pred = torch.stack(
@@ -128,6 +134,21 @@ for i in pred_result:
         top2.update(0., n=1)
 
     confusion_matrix.update(prediction[0], target)
+
+    y_true.append(target)
+    y_score.append(avg_pred.cpu().tolist())
+
+label_names = ['Pit', 'Att', 'Pas', 'Rec', 'Pos', 'Neg', 'Ges']
+print(label_names)
+y_true = np.array(y_true)
+y_score = np.array(y_score)
+for l in range(7): #for each label compute corresponding auc score
+    gt = np.copy(y_true)
+    gt[y_true == l] = 1
+    gt[y_true != l] = 0
+    score = np.copy(y_score)
+    score = score[:,l]
+    print(l,roc_auc_score(gt, score))
 
 print("Top1:%.2f Top2:%.2f" % (confusion_matrix.acc*100, top2.avg*100))
 print(confusion_matrix)
