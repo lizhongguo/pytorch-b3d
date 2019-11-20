@@ -86,7 +86,7 @@ class MatrixMeter(object):
         return _str
 
 split_idx = args.split
-model = 'mbi3d'
+model = 'i3d'
 dataset = 'pev'
 split_list = open('/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx)
 view = 's'
@@ -98,8 +98,8 @@ for i, s in enumerate(split_list):
     id2label[i] = label
 
 
-rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, 'rgb', 'fs'))
-flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, 'flow', 'fs'))
+rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode, 'f'))
+flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, args.mode, 's'))
 
 top1 = AverageMeter()
 top2 = AverageMeter()
@@ -110,9 +110,9 @@ rgb = { k.item():v for k,v in rgb.items() }
 flow = { k.item():v for k,v in flow.items() }
 
 pred_result = dict()
-for k,v in flow.items():
+for k,v in rgb.items():
     pred_result[k] = v
-    #pred_result[k].extend(flow[k])
+    pred_result[k].extend(flow[k])
 
 y_true = []
 y_score = []

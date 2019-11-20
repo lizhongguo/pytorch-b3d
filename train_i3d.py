@@ -71,6 +71,8 @@ parser.add_argument('--apex', action='store_true')
 parser.add_argument('--split_idx', type=int, default=1)
 
 parser.add_argument('--fixed_seed', action='store_true')
+parser.add_argument('--extract_scores', action='store_true')
+parser.add_argument('--norm_method', type=str, default="ConstNorm")
 
 args = parser.parse_args()
 top_acc = 0.
@@ -218,7 +220,7 @@ def model_builder():
             assert args.view == 'fs' and args.mode == 'rgb+flow'
             input_modal = ['frgb', 'fflow', 'srgb', 'sflow']
 
-        model = MBI3D(7, args.fuse, input_modal, share_weight=False)
+        model = MBI3D(7, args.fuse, input_modal, share_weight=False,norm=args.norm_method)
 
     if args.sync_bn and args.apex:
         import apex
@@ -452,6 +454,86 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
     else:
         raise Exception('Model %s not implemented' % args.model)
 
+    if args.extract_scores:
+        test_transforms = Compose([MultiScaleRandomCrop([1.0, 0.95, 0.95*0.95], scale_size),
+                                RandomHorizontalFlip(),
+                                ToTensor(255.0),
+                                Normalize(mean, std)
+                                ])
+        clip_len = args.clip_len // args.sample_step
+        temporal_transforms = Compose([TemporalRandomCrop(clip_len),
+                                   RepeatPadding(clip_len)])
+
+        clip_len = args.clip_len // args.sample_step
+        target_transforms = ClassLabel()
+        val_dataset = PEV(
+            data_root,
+            '/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx,
+            'training',
+            args.n_samples,
+            spatial_transform=test_transforms,
+            temporal_transform=temporal_transforms,
+            target_transform=target_transforms,
+            sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode, sample_step=args.sample_step, view=args.view)
+        #val_dataset.random_select = True
+
+        val_dataloader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, drop_last=False)
+
+        # setup the model
+        model, _, _ = model_builder()
+        model.train(False)
+
+        top1 = AverageMeter()
+        top2 = AverageMeter()
+        label_names = ['Pit', 'Att', 'Pas', 'Rec', 'Pos', 'Neg', 'Ges']
+        confusion_matrix = MatrixMeter(label_names)
+
+        pred_result = []
+        if args.extract_scores:
+            with torch.no_grad():
+                for _ in range(args.epochs):
+                    for data in tqdm(val_dataloader):
+                        if args.model == 'di3d':
+                            input_f, input_s, labels, _ = data
+                            input_f, input_s = input_f.cuda(), input_s.cuda()
+                            labels = labels.cuda(non_blocking=True)
+                            output = model(input_f, input_s)
+
+                        elif args.model == 'mbi3d':
+                            if args.view == 'fs':
+                                input_f, input_s, labels, _ = data
+                                input_f, input_s = input_f.cuda(), input_s.cuda()
+                                labels = labels.cuda(non_blocking=True)
+
+                                if args.mode == 'rgb+flow':
+                                    output = model(input_f[:, :3, :, :, :], input_f[:, 3:, :, :, :],
+                                                input_s[:, :3, :, :, :], input_s[:, 3:, :, :, :])
+                                else:
+                                    output = model(input_f, input_s)
+                            elif args.view == 'f' or args.view == 's':
+                                assert args.mode == 'rgb+flow'
+                                inputs, labels, _ = data
+                                inputs = inputs.cuda()
+                                labels = labels.cuda(non_blocking=True)
+                                output = model(inputs[:, :3, :, :, :],
+                                            inputs[:, 3:, :, :, :])
+
+                        else:
+                            inputs, labels, _ = data
+                            inputs = inputs.cuda()
+                            labels = labels.cuda(non_blocking=True)
+                            output = model(inputs)
+
+                        output = F.softmax(output, dim=1)
+
+                        for o, i in zip(output, labels):
+                            pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+
+                torch.save(pred_result, '%s_split_%d_%s_%s_%s_scores.pt' %
+                        ('pev', args.split_idx, args.model, args.mode, args.view))
+
+            return
     test_transforms = Compose([CenterCrop(scale_size),
                                ToTensor(255.0),
                                Normalize(mean, std)
