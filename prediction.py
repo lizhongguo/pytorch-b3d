@@ -95,7 +95,7 @@ id2label = dict()
 for i, s in enumerate(split_list):
     s = s.split(' ')
     label = int(s[2])        
-    id2label[i] = label
+    id2label[int(s[0][:-2])] = label
 
 
 rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode, 'f'))

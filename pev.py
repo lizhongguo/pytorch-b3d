@@ -133,11 +133,11 @@ def make_dataset(root_path, annotation_path, subset, n_samples_for_each_video,
             'video': video_path,
             'segment': [begin_t, end_t],
             'n_frames': n_frames,
-            'video_id': i
+            'video_id': int(video_name[:-2])
         }
         sample['label'] = label
 
-        id2label[i] = label
+        id2label[sample['video_id']] = label
 
         if n_samples_for_each_video == 1:
             sample['frame_indices'] = list(range(1, n_frames + 1))
@@ -489,7 +489,6 @@ class PEV(data.Dataset):
                     sample_duration, sample_freq=1, sample_step=1):
         dataset = []
 
-        v_id = 0
         for i, label in enumerate(raw_dataset):
 
             videos = raw_dataset[label]
@@ -509,11 +508,10 @@ class PEV(data.Dataset):
                     'video': video_path,
                     'segment': [begin_t, end_t],
                     'n_frames': n_frames,
-                    'video_id': v_id
+                    'video_id': int(video_name[:-2])
                 }
                 sample['label'] = label
 
-                v_id = v_id + 1
 
                 if n_samples_for_each_video == 1:
                     sample['frame_indices'] = list(range(1, n_frames + 1))

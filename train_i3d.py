@@ -455,85 +455,106 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         raise Exception('Model %s not implemented' % args.model)
 
     if args.extract_scores:
-        test_transforms = Compose([MultiScaleRandomCrop([1.0, 0.95, 0.95*0.95], scale_size),
+        train_transforms = Compose([MultiScaleRandomCrop([1.0, 0.95, 0.95*0.95], scale_size),
                                 RandomHorizontalFlip(),
                                 ToTensor(255.0),
                                 Normalize(mean, std)
                                 ])
-        clip_len = args.clip_len // args.sample_step
-        temporal_transforms = Compose([TemporalRandomCrop(clip_len),
-                                   RepeatPadding(clip_len)])
+
+        test_transforms = Compose([CenterCrop(scale_size),
+                                ToTensor(255.0),
+                                Normalize(mean, std)
+                                ])
 
         clip_len = args.clip_len // args.sample_step
-        target_transforms = ClassLabel()
+        temporal_transforms = Compose([TemporalRandomCrop(clip_len),
+                                    RepeatPadding(clip_len)])
+
+        #dataset = Dataset(train_split, 'training', root, mode, train_transforms)
+        dataset = PEV(data_root,
+                    '/home/lizhongguo/dataset/pev_split/train_split_%d.txt' % split_idx,
+                    'training',
+                    n_samples_for_each_video=args.n_samples,
+                    spatial_transform=train_transforms,
+                    temporal_transform=temporal_transforms,
+                    target_transform=VideoID(),
+                    sample_duration=clip_len, sample_freq=args.sample_freq,
+                    mode=args.mode, sample_step=args.sample_step, view=args.view)
+
+        if args.distributed:
+            sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        else:
+            sampler = None
+
+        dataloader = torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, shuffle=(sampler is None), num_workers=2, pin_memory=True, sampler=sampler, drop_last=False)
+
+        val_temporal_transforms = Compose([TemporalBeginCrop(clip_len),
+                                        RepeatPadding(clip_len)])
         val_dataset = PEV(
             data_root,
             '/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx,
-            'training',
+            'evaluation',
             args.n_samples,
             spatial_transform=test_transforms,
-            temporal_transform=temporal_transforms,
-            target_transform=target_transforms,
+            temporal_transform=val_temporal_transforms,
+            target_transform=VideoID(),
             sample_duration=clip_len, sample_freq=args.sample_freq, mode=args.mode, sample_step=args.sample_step, view=args.view)
-        #val_dataset.random_select = True
+
+        if args.distributed:
+            val_sampler = torch.utils.data.distributed.DistributedSampler(
+                val_dataset)
+        else:
+            val_sampler = None
 
         val_dataloader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, drop_last=False)
+            val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=2, pin_memory=True, sampler=val_sampler, drop_last=False)
 
         # setup the model
-        model, _, _ = model_builder()
-        model.train(False)
-
-        top1 = AverageMeter()
-        top2 = AverageMeter()
-        label_names = ['Pit', 'Att', 'Pas', 'Rec', 'Pos', 'Neg', 'Ges']
-        confusion_matrix = MatrixMeter(label_names)
+        model_f = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
+        model_s = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
+        checkpoint = torch.load(
+                    'pev_split_%d_%s_%s_best_cat_f.pt' % (args.split_idx, args.model, args.mode), map_location=lambda storage, loc: storage)
+        model_f.load_state_dict(checkpoint['state_dict'])
+        checkpoint = torch.load(
+                    'pev_split_%d_%s_%s_best_cat_s.pt' % (args.split_idx, args.model, args.mode), map_location=lambda storage, loc: storage)
+        model_s.load_state_dict(checkpoint['state_dict'])
+        model_f.cuda()
+        model_s.cuda()
+        model_f.train(False)
+        model_s.train(False)
 
         pred_result = []
-        if args.extract_scores:
-            with torch.no_grad():
-                for _ in range(args.epochs):
-                    for data in tqdm(val_dataloader):
-                        if args.model == 'di3d':
-                            input_f, input_s, labels, _ = data
-                            input_f, input_s = input_f.cuda(), input_s.cuda()
-                            labels = labels.cuda(non_blocking=True)
-                            output = model(input_f, input_s)
+        with torch.no_grad():
+            for _ in range(args.epochs):
+                for data in tqdm(dataloader):
+                    input_f, input_s, labels, _ = data
+                    input_f, input_s = input_f.cuda(), input_s.cuda()
+                    labels = labels.cuda(non_blocking=True)
+                    output = torch.cat([F.softmax(model_f(input_f), dim=1), \
+                        F.softmax(model_s(input_s), dim=1)], dim=1)
+                    for o, i in zip(output, labels):
+                        pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
 
-                        elif args.model == 'mbi3d':
-                            if args.view == 'fs':
-                                input_f, input_s, labels, _ = data
-                                input_f, input_s = input_f.cuda(), input_s.cuda()
-                                labels = labels.cuda(non_blocking=True)
+        torch.save(pred_result, '%s_split_%d_%s_%s_%s_train_scores.pt' %
+            ('pev', args.split_idx, args.model, args.mode, args.view))
 
-                                if args.mode == 'rgb+flow':
-                                    output = model(input_f[:, :3, :, :, :], input_f[:, 3:, :, :, :],
-                                                input_s[:, :3, :, :, :], input_s[:, 3:, :, :, :])
-                                else:
-                                    output = model(input_f, input_s)
-                            elif args.view == 'f' or args.view == 's':
-                                assert args.mode == 'rgb+flow'
-                                inputs, labels, _ = data
-                                inputs = inputs.cuda()
-                                labels = labels.cuda(non_blocking=True)
-                                output = model(inputs[:, :3, :, :, :],
-                                            inputs[:, 3:, :, :, :])
+        val_pred_result = []
+        with torch.no_grad():
+            for data in tqdm(val_dataloader):
+                input_f, input_s, labels, _ = data
+                input_f, input_s = input_f.cuda(), input_s.cuda()
+                labels = labels.cuda(non_blocking=True)
+                output = torch.cat([F.softmax(model_f(input_f), dim=1), \
+                    F.softmax(model_s(input_s), dim=1)], dim=1)
+                
+                for o, i in zip(output, labels):
+                    val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
 
-                        else:
-                            inputs, labels, _ = data
-                            inputs = inputs.cuda()
-                            labels = labels.cuda(non_blocking=True)
-                            output = model(inputs)
+        torch.save(val_pred_result, '%s_split_%d_%s_%s_%s_val_scores.pt' %
+            ('pev', args.split_idx, args.model, args.mode, args.view))
 
-                        output = F.softmax(output, dim=1)
-
-                        for o, i in zip(output, labels):
-                            pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
-
-                torch.save(pred_result, '%s_split_%d_%s_%s_%s_scores.pt' %
-                        ('pev', args.split_idx, args.model, args.mode, args.view))
-
-            return
+        return
     test_transforms = Compose([CenterCrop(scale_size),
                                ToTensor(255.0),
                                Normalize(mean, std)
