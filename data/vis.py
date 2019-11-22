@@ -3,12 +3,12 @@ import numpy as np
 num_classes=7
 
 data_src = [
-    ['i3d', 'flow', 'f', 'cat'],
-    ['i3d', 'flow', 's', 'cat'],
-    ['i3d', 'flow', 'fs', 'avg'],
-    ['i3d', 'flow', 'fs', 'svm'],
-    ['mbi3d', 'flow', 'fs', 'cat'],
-    ['mbi3d', 'flow', 'fs', 'cbp'],
+    ['i3d', 'rgb', 'f', 'cat'],
+    ['i3d', 'rgb', 's', 'cat'],
+    ['i3d', 'rgb', 'fs', 'avg'],
+    ['i3d', 'rgb', 'fs', 'svm'],
+    ['mbi3d', 'rgb', 'fs', 'cat'],
+    ['mbi3d', 'rgb', 'fs', 'cbp'],
 ]
 
 data = []
@@ -32,7 +32,7 @@ for e,p in zip(data,range(num_classes)):
 plt.xticks([index + 0.3 for index in range(num_classes)], label_names)
 plt.xlabel("Action")
 plt.legend(bbox_to_anchor=(0.85, 0.80, 0., 0.), loc=3)
-plt.savefig('Acc_FLOW.svg',format='svg')
+plt.savefig('Acc_RGB.eps',format='eps')
 #plt.bar(index, values1, bw)
 #plt.bar(index+bw, values2, bw)
 #plt.bar(index+2*bw, values3, bw)
