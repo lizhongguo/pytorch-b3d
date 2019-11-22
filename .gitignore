@@ -4,3 +4,8 @@
 .vscode
 *.pth
 *.pt
+data/Acc_RGB.svg
+data/Acc_FLOW.svg
+data/Acc.svg
+data/Acc_FLOW.eps
+data/Acc_RGB.eps

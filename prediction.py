@@ -7,6 +7,10 @@ from sklearn.metrics import confusion_matrix, accuracy_score, roc_auc_score
 parser = argparse.ArgumentParser()
 parser.add_argument('--split',  type=int, default=1)
 parser.add_argument('--mode',  type=str, default='rgb')
+parser.add_argument('--comment',  type=str, default='')
+parser.add_argument('--fuse',  type=str, default='cat')
+parser.add_argument('--view',  type=str, default='f')
+parser.add_argument('--model',  type=str, default='i3d')
 
 args = parser.parse_args()
 
@@ -76,6 +80,16 @@ class MatrixMeter(object):
             data[l] = self._matrix[l][l]/self._matrix[l].sum()
         return data.mean().item()
 
+    @property
+    def acc_each_label(self):
+        data = torch.zeros(
+            len(self.labels), dtype=torch.float)
+
+        for l in range(len(self.labels)):
+            data[l] = self._matrix[l][l]/self._matrix[l].sum()
+        return data
+
+
     def __str__(self):
         _str_format = "%.2f\t"*len(self.labels)+'\n'
         _str = ' \t' + '\t'.join(l for l in self.labels) + '\n'
@@ -86,10 +100,9 @@ class MatrixMeter(object):
         return _str
 
 split_idx = args.split
-model = 'i3d'
+model = args.model
 dataset = 'pev'
 split_list = open('/home/lizhongguo/dataset/pev_split/val_split_%d.txt' % split_idx)
-view = 's'
 id2label = dict()
 
 for i, s in enumerate(split_list):
@@ -97,22 +110,31 @@ for i, s in enumerate(split_list):
     label = int(s[2])        
     id2label[int(s[0][:-2])] = label
 
-
-rgb = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode, 'f'))
-flow = torch.load('%s_split_%d_%s_%s_%s_result.pt' % (dataset,split_idx , model, args.mode, 's'))
-
 top1 = AverageMeter()
 top2 = AverageMeter()
 label_names = ['0', '1', '2', '3', '4', '5', '6']
 confusion_matrix = MatrixMeter(label_names)
-
-rgb = { k.item():v for k,v in rgb.items() }
-flow = { k.item():v for k,v in flow.items() }
-
 pred_result = dict()
-for k,v in rgb.items():
-    pred_result[k] = v
-    pred_result[k].extend(flow[k])
+
+if args.model == 'i3d' and args.view=='fs':
+    rgb = torch.load('%s_split_%d_%s_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode, 'f', 'cat'))
+    flow = torch.load('%s_split_%d_%s_%s_%s_%s_result.pt' % (dataset,split_idx , model, args.mode,  's', 'cat'))
+    rgb = { k.item():v for k,v in rgb.items() }
+    flow = { k.item():v for k,v in flow.items() }
+    for k,v in rgb.items():
+        pred_result[k] = v
+        pred_result[k].extend(flow[k])
+
+else:
+    rgb = torch.load('%s_split_%d_%s_%s_%s_%s_result.pt' % (dataset, split_idx , model, args.mode,args.view, args.fuse))
+    #flow = torch.load('%s_split_%d_%s_%s_%s_%s_result.pt' % (dataset,split_idx , model, args.mode, args.fuse,  's'))
+
+    rgb = { k.item():v for k,v in rgb.items() }
+    #flow = { k.item():v for k,v in flow.items() }
+
+    for k,v in rgb.items():
+        pred_result[k] = v
+        #pred_result[k].extend(flow[k])
 
 y_true = []
 y_score = []
@@ -150,6 +172,9 @@ for l in range(7): #for each label compute corresponding auc score
     score = score[:,l]
     print(l,roc_auc_score(gt, score))
 
+np.save('pev_split_%d_%s_%s_%s_%s_%s.npy' %(args.split, args.model,args.mode, args.view, args.fuse, \
+     args.comment), confusion_matrix.acc_each_label.numpy())
+print(confusion_matrix.acc_each_label.numpy())
 print("Top1:%.2f Top2:%.2f" % (confusion_matrix.acc*100, top2.avg*100))
 print(confusion_matrix)
 

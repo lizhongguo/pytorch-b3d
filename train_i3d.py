@@ -511,30 +511,55 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
             val_dataset, batch_size=batch_size, shuffle=(val_sampler is None), num_workers=2, pin_memory=True, sampler=val_sampler, drop_last=False)
 
         # setup the model
-        model_f = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
-        model_s = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
-        checkpoint = torch.load(
-                    'pev_split_%d_%s_%s_best_cat_f.pt' % (args.split_idx, args.model, args.mode), map_location=lambda storage, loc: storage)
-        model_f.load_state_dict(checkpoint['state_dict'])
-        checkpoint = torch.load(
-                    'pev_split_%d_%s_%s_best_cat_s.pt' % (args.split_idx, args.model, args.mode), map_location=lambda storage, loc: storage)
-        model_s.load_state_dict(checkpoint['state_dict'])
-        model_f.cuda()
-        model_s.cuda()
-        model_f.train(False)
-        model_s.train(False)
+        if args.model == 'mbi3d' and args.mode == 'rgb+flow':
+            model_f = MBI3D(7, args.fuse,['fflow','sflow'])
+            model_s = MBI3D(7, args.fuse,['frgb','srgb'])
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best%sfs.pt' % (args.split_idx, args.model, 'flow', \
+                            '_' if args.fuse=='cbp' else '_'+args.fuse+'_'), map_location=lambda storage, loc: storage)
+            model_f.load_state_dict(checkpoint['state_dict'])
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best%sfs.pt' % (args.split_idx, args.model, 'rgb', \
+                            '_' if args.fuse=='cbp' else '_'+args.fuse+'_'), map_location=lambda storage, loc: storage)
+            model_s.load_state_dict(checkpoint['state_dict'])
+            model_f.cuda()
+            model_s.cuda()
+            model_f.train(False)
+            model_s.train(False)        
+        else:
+            model_f = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
+            model_s = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best_cat_f.pt' % (args.split_idx, args.model, args.mode), map_location=lambda storage, loc: storage)
+            model_f.load_state_dict(checkpoint['state_dict'])
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best_cat_s.pt' % (args.split_idx, args.model, args.mode), map_location=lambda storage, loc: storage)
+            model_s.load_state_dict(checkpoint['state_dict'])
+            model_f.cuda()
+            model_s.cuda()
+            model_f.train(False)
+            model_s.train(False)
 
         pred_result = []
         with torch.no_grad():
             for _ in range(args.epochs):
                 for data in tqdm(dataloader):
-                    input_f, input_s, labels, _ = data
-                    input_f, input_s = input_f.cuda(), input_s.cuda()
-                    labels = labels.cuda(non_blocking=True)
-                    output = torch.cat([F.softmax(model_f(input_f), dim=1), \
-                        F.softmax(model_s(input_s), dim=1)], dim=1)
-                    for o, i in zip(output, labels):
-                        pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+                    if args.model == 'mbi3d' and args.mode == 'rgb+flow':
+                        input_f, input_s, labels, _ = data
+                        input_f, input_s = input_f.cuda(), input_s.cuda()
+                        labels = labels.cuda(non_blocking=True)
+                        output = torch.cat([F.softmax(model_f(input_f[:, 3:, :, :, :], input_s[:, 3:, :, :, :]),dim=1),
+                            F.softmax(model_s(input_f[:, :3, :, :, :], input_s[:, :3, :, :, :]),dim=1)],dim=1)
+                        for o, i in zip(output, labels):
+                            pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+                    else:
+                        input_f, input_s, labels, _ = data
+                        input_f, input_s = input_f.cuda(), input_s.cuda()
+                        labels = labels.cuda(non_blocking=True)
+                        output = torch.cat([F.softmax(model_f(input_f), dim=1), \
+                            F.softmax(model_s(input_s), dim=1)], dim=1)
+                        for o, i in zip(output, labels):
+                            pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
 
         torch.save(pred_result, '%s_split_%d_%s_%s_%s_train_scores.pt' %
             ('pev', args.split_idx, args.model, args.mode, args.view))
@@ -542,14 +567,23 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
         val_pred_result = []
         with torch.no_grad():
             for data in tqdm(val_dataloader):
-                input_f, input_s, labels, _ = data
-                input_f, input_s = input_f.cuda(), input_s.cuda()
-                labels = labels.cuda(non_blocking=True)
-                output = torch.cat([F.softmax(model_f(input_f), dim=1), \
-                    F.softmax(model_s(input_s), dim=1)], dim=1)
+                if args.model == 'mbi3d' and args.mode == 'rgb+flow':
+                    input_f, input_s, labels, _ = data
+                    input_f, input_s = input_f.cuda(), input_s.cuda()
+                    labels = labels.cuda(non_blocking=True)
+                    output = torch.cat([F.softmax(model_f(input_f[:, 3:, :, :, :], input_s[:, 3:, :, :, :]),dim=1),
+                        F.softmax(model_s(input_f[:, :3, :, :, :], input_s[:, :3, :, :, :]),dim=1)],dim=1)
+                    for o, i in zip(output, labels):
+                        val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+                else:
+                    input_f, input_s, labels, _ = data
+                    input_f, input_s = input_f.cuda(), input_s.cuda()
+                    labels = labels.cuda(non_blocking=True)
+                    output = torch.cat([F.softmax(model_f(input_f), dim=1), \
+                        F.softmax(model_s(input_s), dim=1)], dim=1)
                 
-                for o, i in zip(output, labels):
-                    val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+                    for o, i in zip(output, labels):
+                        val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
 
         torch.save(val_pred_result, '%s_split_%d_%s_%s_%s_val_scores.pt' %
             ('pev', args.split_idx, args.model, args.mode, args.view))
@@ -631,8 +665,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                     pred_result[i] = []
                 pred_result[i].append(o)
 
-        torch.save(pred_result, '%s_split_%d_%s_%s_%s_result.pt' %
-                   ('pev', args.split_idx, args.model, args.mode, args.view))
+        torch.save(pred_result, '%s_split_%d_%s_%s_%s_%s_result.pt' %
+                   ('pev', args.split_idx, args.model, args.mode, args.view, args.fuse))
 
         for i in pred_result:
             avg_pred = torch.stack(

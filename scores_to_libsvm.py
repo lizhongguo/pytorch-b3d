@@ -1,6 +1,7 @@
 import torch
 import argparse
-
+import numpy as np
+from sklearn.metrics import confusion_matrix, accuracy_score, roc_auc_score
 parser = argparse.ArgumentParser()
 parser.add_argument('--split',  type=int, default=1)
 parser.add_argument('--mode',  type=str, default='rgb')
@@ -22,9 +23,18 @@ for subset in ['train', 'val']:
                       (args.split, args.model, args.mode, 'fs', subset))
     split_txt = open('pev_split_%d_%s_%s_%s_svm.txt' %
                      (args.split, args.model, args.mode, subset), 'w')
+    y_true = []
+    y_score_1 = []
+    y_score_2 = []
+
     for l in data:
         label = id2label[l[1].item()]
         feature = [e for e in l[0]]
+
+        y_true.append(label)
+        y_score_1.append(l[0][:7].argmax(axis=0))
+        y_score_2.append(l[0][7:].argmax(axis=0))
         formattxt = ('%d %s\n') % (label, ' '.join(
             ['%d:%.4f' % (i+1, e) for i, e in enumerate(feature)]))
         split_txt.write(formattxt)
+    print(accuracy_score(y_true,y_score_1), accuracy_score(y_true,y_score_2))

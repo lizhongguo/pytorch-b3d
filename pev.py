@@ -266,6 +266,11 @@ class PEV(data.Dataset):
                 sample_duration, sample_freq, sample_step)
 
         self.spatial_transform = spatial_transform
+
+        #hack for bugs about normalize 
+        self.normalize = self.spatial_transform.transforms[-1]
+        self.spatial_transform.transforms = self.spatial_transform.transforms[:-1]
+
         self.temporal_transform = temporal_transform
         self.target_transform = target_transform
         self.loader = get_loader()
@@ -461,7 +466,7 @@ class PEV(data.Dataset):
             clip = clip.reshape(
                 shape[0]*self.dense_select_length, -1, shape[2], shape[3])
 
-        return clip
+        return self.normalize(clip)
 
     def __len__(self):
         return len(self.data)
