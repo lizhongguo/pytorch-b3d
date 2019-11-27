@@ -54,9 +54,9 @@ class DI3D(nn.Module):
         return y
 
 class L2Normalize(nn.Module):
-    def __init__(self):
+    def __init__(self,var=8.0):
         super(L2Normalize, self).__init__()
-        self.var = nn.Parameter(torch.Tensor([8.]))
+        self.var = nn.Parameter(torch.Tensor([var]))
         self.var.requires_grad = False
         self.num_batches_tracked = 8
         
@@ -86,7 +86,7 @@ class MBI3D(nn.Module):
                                                       if k.find('logits') < 0}, strict=False)
 
                     if norm == 'L2Norm':
-                        self.norm[m] = L2Normalize()
+                        self.norm[m] = L2Normalize(var=2.)
                         self.add_module('norm_%s' % m, self.norm[m])
                     else:
                         self.norm[m] = 1.
@@ -97,7 +97,7 @@ class MBI3D(nn.Module):
                     self.backbone[m].load_state_dict({k: v for k, v in torch.load('models/flow_imagenet.pt').items()
                                                       if k.find('logits') < 0}, strict=False)
                     if norm == 'L2Norm':
-                        self.norm[m] = L2Normalize()
+                        self.norm[m] = L2Normalize(var=8.)
                         self.add_module('norm_%s' % m, self.norm[m])
                     else:
                         self.norm[m] = 4.
