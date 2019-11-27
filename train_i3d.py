@@ -44,7 +44,7 @@ parser.add_argument('--mode', type=str, help='rgb or flow')
 parser.add_argument('--save_model', type=str)
 parser.add_argument('--root', type=str)
 parser.add_argument('--fuse', type=str, default='cat',
-                    choices=['cat', 'cbp', 'cbp+cat'])
+                    choices=['cat', 'cbp', 'multiply','sum'])
 parser.add_argument('--eval', action='store_true')
 parser.add_argument('--visualize', action='store_true')
 parser.add_argument('--batch_size', type=int, default=8)
@@ -86,8 +86,8 @@ try:
             last_result = torch.load('%s_split_%d_%s_%s_%s_%s.pt' % (
                 'pev', args.split_idx, args.model, args.mode, 'best', args.view))
         else:
-            last_result = torch.load('%s_split_%d_%s_%s_%s_cat_%s.pt' % (
-                'pev', args.split_idx, args.model, args.mode, 'best', args.view))
+            last_result = torch.load('%s_split_%d_%s_%s_%s_%s_%s.pt' % (
+                'pev', args.split_idx, args.model, args.mode, 'best', args.fuse, args.view))
 
     top_acc = last_result['top_acc']
 except Exception as e:
@@ -526,7 +526,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
             model_s.cuda()
             model_f.train(False)
             model_s.train(False)        
-        else:
+        elif args.mode == 'rgb' or args.mode=='flow':
             model_f = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
             model_s = InceptionI3d(num_classes=7,in_channels=2 if args.mode == 'flow' else 3)
             checkpoint = torch.load(
@@ -540,6 +540,33 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
             model_f.train(False)
             model_s.train(False)
 
+        else:
+            model_flow_f = InceptionI3d(num_classes=7,in_channels=2)
+            model_flow_s = InceptionI3d(num_classes=7,in_channels=2)
+            model_rgb_f = InceptionI3d(num_classes=7,in_channels=3)
+            model_rgb_s = InceptionI3d(num_classes=7,in_channels=3)
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best_cat_f.pt' % (args.split_idx, args.model, 'flow'), map_location=lambda storage, loc: storage)
+            model_flow_f.load_state_dict(checkpoint['state_dict'])
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best_cat_s.pt' % (args.split_idx, args.model, 'flow'), map_location=lambda storage, loc: storage)
+            model_flow_s.load_state_dict(checkpoint['state_dict'])
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best_cat_f.pt' % (args.split_idx, args.model, 'rgb'), map_location=lambda storage, loc: storage)
+            model_rgb_f.load_state_dict(checkpoint['state_dict'])
+            checkpoint = torch.load(
+                        'pev_split_%d_%s_%s_best_cat_s.pt' % (args.split_idx, args.model, 'rgb'), map_location=lambda storage, loc: storage)
+            model_rgb_s.load_state_dict(checkpoint['state_dict'])
+
+            model_flow_f.cuda()
+            model_flow_f.train(False)
+            model_flow_s.cuda()
+            model_flow_s.train(False)
+            model_rgb_f.cuda()
+            model_rgb_f.train(False)
+            model_rgb_s.cuda()
+            model_rgb_s.train(False)
+
         pred_result = []
         with torch.no_grad():
             for _ in range(args.epochs):
@@ -552,17 +579,28 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                             F.softmax(model_s(input_f[:, :3, :, :, :], input_s[:, :3, :, :, :]),dim=1)],dim=1)
                         for o, i in zip(output, labels):
                             pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+                    elif args.mode =='rgb+flow':
+                        input_f, input_s, labels, _ = data
+                        input_f, input_s = input_f.cuda(), input_s.cuda()
+                        labels = labels.cuda(non_blocking=True)
+                        output = torch.cat([F.softmax(model_flow_f(input_f[:,3:,:,:,:]), dim=1), \
+                            F.softmax(model_flow_s(input_s[:,3:,:,:,:]), dim=1), \
+                            F.softmax(model_rgb_f(input_f[:,:3,:,:,:]), dim=1), \
+                            F.softmax(model_rgb_s(input_s[:,:3,:,:,:]), dim=1)], dim=1)
+                        for o, i in zip(output, labels):
+                            pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
                     else:
                         input_f, input_s, labels, _ = data
                         input_f, input_s = input_f.cuda(), input_s.cuda()
                         labels = labels.cuda(non_blocking=True)
                         output = torch.cat([F.softmax(model_f(input_f), dim=1), \
                             F.softmax(model_s(input_s), dim=1)], dim=1)
+                    
                         for o, i in zip(output, labels):
                             pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
 
-        torch.save(pred_result, '%s_split_%d_%s_%s_%s_train_scores.pt' %
-            ('pev', args.split_idx, args.model, args.mode, args.view))
+        torch.save(pred_result, '%s_split_%d_%s_%s_%s_%strain_scores.pt' %
+            ('pev', args.split_idx, args.model, args.mode, args.view, '' if args.fuse=='cbp' else args.fuse+'_'))
 
         val_pred_result = []
         with torch.no_grad():
@@ -575,6 +613,16 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                         F.softmax(model_s(input_f[:, :3, :, :, :], input_s[:, :3, :, :, :]),dim=1)],dim=1)
                     for o, i in zip(output, labels):
                         val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
+                elif args.mode =='rgb+flow':
+                    input_f, input_s, labels, _ = data
+                    input_f, input_s = input_f.cuda(), input_s.cuda()
+                    labels = labels.cuda(non_blocking=True)
+                    output = torch.cat([F.softmax(model_flow_f(input_f[:,3:,:,:,:]), dim=1), \
+                        F.softmax(model_flow_s(input_s[:,3:,:,:,:]), dim=1), \
+                        F.softmax(model_rgb_f(input_f[:,:3,:,:,:]), dim=1), \
+                        F.softmax(model_rgb_s(input_s[:,:3,:,:,:]), dim=1)], dim=1)
+                    for o, i in zip(output, labels):
+                        val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
                 else:
                     input_f, input_s, labels, _ = data
                     input_f, input_s = input_f.cuda(), input_s.cuda()
@@ -585,8 +633,8 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                     for o, i in zip(output, labels):
                         val_pred_result.append([o.cpu().numpy(),i.cpu().numpy()])
 
-        torch.save(val_pred_result, '%s_split_%d_%s_%s_%s_val_scores.pt' %
-            ('pev', args.split_idx, args.model, args.mode, args.view))
+        torch.save(val_pred_result, '%s_split_%d_%s_%s_%s_%sval_scores.pt' %
+            ('pev', args.split_idx, args.model, args.mode, args.view, '' if args.fuse=='cbp' else args.fuse+'_'))
 
         return
     test_transforms = Compose([CenterCrop(scale_size),
@@ -666,7 +714,7 @@ def evaluate(init_lr=0.1, max_steps=320, mode='rgb', batch_size=20, save_model='
                 pred_result[i].append(o)
 
         torch.save(pred_result, '%s_split_%d_%s_%s_%s_%s_result.pt' %
-                   ('pev', args.split_idx, args.model, args.mode, args.view, args.fuse))
+                   ('pev', args.split_idx, args.model, args.mode, args.fuse, args.view))
 
         for i in pred_result:
             avg_pred = torch.stack(
@@ -859,7 +907,7 @@ def save(model, comment):
                     '%s_split_%d_%s_%s_%s_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
         else:
             torch.save({'state_dict': state_dict, 'args': args, 'top_acc': top_acc},
-                    '%s_split_%d_%s_%s_%s_cat_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.view))
+                    '%s_split_%d_%s_%s_%s_%s_%s.pt' % ('pev', split_idx, args.model, args.mode, comment, args.fuse, args.view))
 
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""

@@ -56,9 +56,9 @@ class DI3D(nn.Module):
 class L2Normalize(nn.Module):
     def __init__(self):
         super(L2Normalize, self).__init__()
-        self.var = nn.Parameter(torch.Tensor([4.]))
+        self.var = nn.Parameter(torch.Tensor([8.]))
         self.var.requires_grad = False
-        self.num_batches_tracked = 128
+        self.num_batches_tracked = 8
         
     def forward(self, feature):
         if self.training:
@@ -126,6 +126,9 @@ class MBI3D(nn.Module):
         elif mode == 'cat':
             self.fc = nn.Linear(1024*len(input_modal), num_classes)
 
+        elif mode == 'multiply' or mode == 'sum':
+            self.fc = nn.Linear(1024, num_classes)
+
         else:
             raise NotImplementedError
 
@@ -156,6 +159,16 @@ class MBI3D(nn.Module):
 
         elif self.mode == 'cat':
             feature = torch.cat(features, dim=1)
+            feature = self.dropout(feature)
+        elif self.mode == 'multiply':
+            feature = None
+            for f in features:
+                feature = f if feature is None else feature*f
+            feature = self.dropout(feature)
+        elif self.mode == 'sum':
+            feature = None
+            for f in features:
+                feature = f if feature is None else feature+f
             feature = self.dropout(feature)
         else:
             raise NotImplementedError

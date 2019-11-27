@@ -6,6 +6,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--split',  type=int, default=1)
 parser.add_argument('--mode',  type=str, default='rgb')
 parser.add_argument('--model',  type=str, default='i3d')
+parser.add_argument('--fuse',  type=str, default='cbp')
 args = parser.parse_args()
 
 for subset in ['train', 'val']:
@@ -19,13 +20,12 @@ for subset in ['train', 'val']:
         id2label[int(s[0][:-2])] = label
 
     first_view = {}
-    data = torch.load('pev_split_%d_%s_%s_%s_%s_scores.pt' %
-                      (args.split, args.model, args.mode, 'fs', subset))
-    split_txt = open('pev_split_%d_%s_%s_%s_svm.txt' %
-                     (args.split, args.model, args.mode, subset), 'w')
+    data = torch.load('pev_split_%d_%s_%s_%s_%s%s_scores.pt' %
+                      (args.split, args.model, args.mode, 'fs', '' if args.fuse=='cbp' else args.fuse+'_', subset))
+    split_txt = open('pev_split_%d_%s_%s_%s%s_svm.txt' %
+                     (args.split, args.model, args.mode, '' if args.fuse=='cbp' else args.fuse+'_', subset), 'w')
     y_true = []
     y_score_1 = []
-    y_score_2 = []
 
     for l in data:
         label = id2label[l[1].item()]
@@ -33,8 +33,7 @@ for subset in ['train', 'val']:
 
         y_true.append(label)
         y_score_1.append(l[0][:7].argmax(axis=0))
-        y_score_2.append(l[0][7:].argmax(axis=0))
         formattxt = ('%d %s\n') % (label, ' '.join(
             ['%d:%.4f' % (i+1, e) for i, e in enumerate(feature)]))
         split_txt.write(formattxt)
-    print(accuracy_score(y_true,y_score_1), accuracy_score(y_true,y_score_2))
+    print(accuracy_score(y_true,y_score_1))
