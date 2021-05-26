@@ -17,7 +17,7 @@ Directories shall be organized as :
 
 `data_root/video_name/flow_y_00001.jpg` optical flow y
 
-The split file following the format:
+The split file follows the format:
 `video_name label`
 
 ## Training
